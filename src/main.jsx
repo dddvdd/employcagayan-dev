@@ -5,6 +5,9 @@ import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './contexts/AuthContext.jsx'
 import LoginPage from './pages/Public/LoginPage.jsx'
+import AuthCallbackPage from './pages/Public/AuthCallbackPage.jsx'
+import MfaPage from './pages/Public/MfaPage.jsx'
+import EmployerAccreditationPage from './pages/Employer/EmployerAccreditationPage.jsx'
 import CalendarPage from './pages/CalendarPage.jsx'
 import RegisterPage from './pages/Public/RegisterPage.jsx'
 import ProtectedRoute from './components/auth/ProtectedRoute.jsx'
@@ -18,6 +21,8 @@ import MedicalReferralEntry from './pages/Staff/MedicalReferralEntry.jsx'
 import MedicalDashboard from './pages/Medical/MedicalDashboard.jsx'
 import AdminDashboard from './pages/Admin/AdminDashboard.jsx'
 import EmploymentIntelligencePage from './pages/Admin/EmploymentIntelligencePage.jsx'
+import OccupationKnowledgePage from './pages/Admin/OccupationKnowledgePage.jsx'
+import SkillRelationshipsPage from './pages/Admin/SkillRelationshipsPage.jsx'
 import RegistrantsManagement from './pages/Admin/RegistrantsManagement.jsx'
 import UsersManagement from './pages/Admin/UsersManagement.jsx'
 import EventsManagement from './pages/Admin/EventsManagement.jsx'
@@ -52,13 +57,15 @@ import JobseekerRecommendationsPage from './pages/Jobseeker/JobseekerRecommendat
 import EmployerCandidateRecommendationsPage from './pages/Employer/EmployerCandidateRecommendationsPage.jsx'
 import JobsPage from './pages/Public/JobsPage.jsx'
 import JobDetailPage from './pages/Public/JobDetailPage.jsx'
+import NotFoundPage from './pages/Public/NotFoundPage.jsx'
 import MyApplicationsPage from './pages/Jobseeker/MyApplicationsPage.jsx'
 import EmployerInboxPage from './pages/Employer/EmployerInboxPage.jsx'
 import ReviewDashboard from './components/aiReview/ReviewDashboard.jsx'
-import { Toaster } from 'sonner'
+import ThemeAwareToaster from './components/ThemeAwareToaster.jsx'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 import { setProvider as registerStorageProvider } from './storage/storageService.js'
 import { supabaseStorage } from './storage/supabaseStorage.js'
+import RouteDocumentTitle from './components/RouteDocumentTitle.jsx'
 
 // Wire the Supabase Storage adapter as the active storage provider.
 // Swap in `r2Storage` here (and only here) when migrating to R2.
@@ -68,15 +75,19 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
+        <RouteDocumentTitle />
         <AuthProvider>
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            <Route path="/auth/mfa" element={<MfaPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/events/:eventId" element={<EventDetailPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/jobs/:vacancyId" element={<JobDetailPage />} />
             <Route element={<ProtectedRoute roles={['applicant']} />}>
+              <Route path="/register" element={<RegisterPage />} />
               <Route path="/pass" element={<PassPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/jobseeker/work-experience" element={<WorkExperiencePage />} />
@@ -90,9 +101,13 @@ createRoot(document.getElementById('root')).render(
               <Route path="/jobseeker/applications" element={<MyApplicationsPage />} />
             </Route>
             <Route path="/register-employer" element={<EmployerRegisterPage />} />
-            <Route element={<ProtectedRoute roles={['applicant', 'employer']} />}>
-              <Route path="/register" element={<RegisterPage />} />
+            <Route element={<ProtectedRoute roles={['applicant', 'employer']} purpose="employer-registration" />}>
               <Route path="/register-employer/complete" element={<CompleteEmployerRegistration />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={['applicant', 'employer']} purpose="accreditation" />}>
+              <Route path="/partner/accreditation" element={<EmployerAccreditationPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={['applicant', 'employer']} />}>
               <Route path="/participation/:participationId" element={<ParticipationPage />} />
               <Route path="/ticket/:registrantId" element={<ParticipationPage />} />
             </Route>
@@ -124,6 +139,8 @@ createRoot(document.getElementById('root')).render(
               <Route element={<AdminLayout />}>
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/intelligence" element={<EmploymentIntelligencePage />} />
+                <Route path="/admin/occupation-skills" element={<OccupationKnowledgePage />} />
+                <Route path="/admin/skill-relationships" element={<SkillRelationshipsPage />} />
                 <Route path="/admin/reports" element={<AdminReports />} />
                 <Route path="/admin/registrants" element={<RegistrantsManagement />} />
                 <Route path="/admin/users" element={<UsersManagement />} />
@@ -148,8 +165,9 @@ createRoot(document.getElementById('root')).render(
                 <Route path="/employer/inbox/:vacancyId" element={<EmployerInboxPage />} />
               </Route>
             </Route>
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
-          <Toaster richColors position="top-center" />
+          <ThemeAwareToaster />
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

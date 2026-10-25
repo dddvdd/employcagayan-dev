@@ -62,7 +62,7 @@ export async function listForEmployer(employerId) {
   return unwrap(
     await supabase
       .from('vacancy_definitions')
-      .select('*, event_vacancies(id, slots_offered, slots_filled, notes, events(id, event_name, event_date))')
+      .select('*, event_vacancies(id, event_id, application_deadline, slots_offered, slots_filled, notes, events(id, event_name, event_date))')
       .eq('employer_id', employerId)
       .order('position', { ascending: true }),
     'Could not load vacancies'
@@ -73,7 +73,7 @@ export async function listAllAdmin() {
   return unwrap(
     await supabase
       .from('vacancy_definitions')
-      .select('*, event_vacancies(id, slots_offered, slots_filled, notes, events(id, event_name, event_date))')
+      .select('*, event_vacancies(id, event_id, application_deadline, slots_offered, slots_filled, notes, events(id, event_name, event_date))')
       .order('company_name', { ascending: true }),
     'Could not load vacancies'
   )
@@ -183,6 +183,13 @@ export async function removeOffering(id) {
   )
 }
 
+export async function closeApplications(id) {
+  return unwrapRpc(
+    await supabase.rpc('close_event_offering_applications', { p_event_vacancy_id: id }),
+    'Could not close applications'
+  )
+}
+
 export const eventVacancyService = {
   listForEvent,
   listAllActive,
@@ -197,6 +204,7 @@ export const eventVacancyService = {
   updateOffering,
   updateFilledCount,
   removeOffering,
+  closeApplications,
   countVacanciesByEvent,
   listForReports,
 }

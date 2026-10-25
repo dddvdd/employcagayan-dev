@@ -18,6 +18,15 @@ export async function update(id, patch) {
   )
 }
 
+export async function getForRequirementReview(id) {
+  return unwrap(
+    await supabase.from('vacancy_definitions')
+      .select('id, qualifications, job_description, requirements_summary')
+      .eq('id', id).single(),
+    'Could not load vacancy text for requirement review'
+  )
+}
+
 export async function remove(id) {
   return unwrap(
     await supabase.from('vacancy_definitions').delete().eq('id', id),
@@ -67,6 +76,7 @@ export async function findExistingMatchBulk() {
 export const vacancyService = {
   insert,
   update,
+  getForRequirementReview,
   remove,
   findExistingMatch,
   findExistingMatchBulk,

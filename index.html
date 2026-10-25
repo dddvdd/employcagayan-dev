@@ -4,13 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>jobfair-web</title>
+    <title>Trabaho Caravan | Cagayan PESO</title>
     <script>
       // Apply the saved theme before first paint to avoid a flash.
       try {
         var t = localStorage.getItem('theme')
-        var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
-        if (dark) document.documentElement.classList.add('dark')
+        var mode = t === 'light' || t === 'dark' ? t : 'system'
+        var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.themeMode = mode
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
       } catch (e) {}
     </script>
   </head>

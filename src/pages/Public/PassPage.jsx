@@ -7,6 +7,7 @@ import { participantService } from '../../services/participantService'
 import { participationService } from '../../services/participationService'
 import { PixelStar, PixelArrow, PixelBriefcase, PixelCal } from '../../components/public/pixel'
 import ThemeToggle from '../../components/ThemeToggle'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
 
 // Persistent Participant Pass — identifies WHO the person is, independent of
 // any single event. The QR contains ONLY the opaque public pass id, never
@@ -14,18 +15,23 @@ import ThemeToggle from '../../components/ThemeToggle'
 // context, but they never alter the pass itself.
 export default function PassPage() {
   const { user } = useAuth()
-  const { participant, loading: participantLoading } = useParticipant()
+  const { participant, loading: participantLoading, error: participantError } = useParticipant()
   const [profile, setProfile] = useState(null)
   const [participations, setParticipations] = useState([])
   const [missing, setMissing] = useState(false)
+  const [detailsLoading, setDetailsLoading] = useState(true)
+  const [detailsError, setDetailsError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const qrRef = useRef(null)
 
   useEffect(() => {
     if (!participant) {
-      if (!participantLoading) setMissing(true)
+      if (!participantLoading && !participantError) setMissing(true)
+      if (!participantLoading) setDetailsLoading(false)
       return
     }
     let alive = true
+    setDetailsLoading(true)
     Promise.all([
       participantService.fetchJobseekerProfile(participant.id),
       participationService.listForParticipantWithDetails(participant.id),
@@ -33,16 +39,31 @@ export default function PassPage() {
       if (!alive) return
       setProfile(profileRow)
       setParticipations(parts || [])
-    }).catch(() => { if (alive) { setProfile(null); setParticipations([]) } })
+      setDetailsError(false)
+    }).catch(() => { if (alive) setDetailsError(true) }).finally(() => { if (alive) setDetailsLoading(false) })
     return () => { alive = false }
-  }, [participant, participantLoading])
+  }, [participant, participantLoading, participantError, reloadKey])
 
-  if (participantLoading) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading your pass…</main>
+  if (participantLoading) return <PageLoadingState>Loading your pass…</PageLoadingState>
+
+  if (participantError || detailsError) return (
+    <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+      <div className="absolute right-4 top-4"><ThemeToggle /></div>
+      <section role="alert" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Your pass couldn’t be loaded</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection and try again. Your pass and event history have not been changed.</p>
+        <button type="button" onClick={() => { setDetailsError(false); setDetailsLoading(true); setReloadKey((key) => key + 1) }} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+      </section>
+    </main>
+  )
+
+  if (detailsLoading) return <PageLoadingState>Loading your pass…</PageLoadingState>
 
   if (missing || !participant) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
-        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+      <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <PixelStar className="mx-auto h-4 w-4 text-amber-400" />
           <h1 className="mt-3 text-xl font-bold text-slate-900">No Pass Yet</h1>
           <p className="mt-2 text-sm text-slate-500">Create your Job Seeker Profile first — your Participant Pass is issued with it.</p>
@@ -74,15 +95,15 @@ export default function PassPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto flex h-16 max-w-2xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-widest text-blue-700">
             <PixelArrow className="h-3 w-3 rotate-180" /> Quest Board
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link to="/profile" className="text-xs font-semibold text-slate-600 hover:text-slate-900">Edit Profile</Link>
+            <Link to="/profile" className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white">Edit Profile</Link>
           </div>
         </div>
       </header>
@@ -92,7 +113,7 @@ export default function PassPage() {
         <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">Your Permanent Participant Identity</h1>
         <p className="mt-1 text-sm text-slate-600">Scan this at any Quest — one identity, reused across all events.</p>
 
-        <section className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+        <section className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <header className="bg-blue-700 px-6 py-4 text-white">
             <p className="text-sm font-semibold uppercase tracking-wider text-blue-100">Job Seeker</p>
             <h2 className="mt-1 text-xl font-bold">{name}</h2>
@@ -108,7 +129,7 @@ export default function PassPage() {
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <button onClick={downloadPass} className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">Download Pass</button>
-              <button onClick={() => window.print()} className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Print Pass</button>
+              <button onClick={() => window.print()} className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Print Pass</button>
             </div>
           </div>
         </section>
@@ -121,14 +142,14 @@ export default function PassPage() {
               {participations.map(ep => {
                 const offers = (ep.participation_vacancies || []).map(pv => pv.event_vacancies).filter(Boolean)
                 return (
-                  <div key={ep.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                  <div key={ep.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold text-slate-900">{ep.events?.event_name || 'Quest'}</p>
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${
                         ep.check_in_status === 'checked_in' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                       }`}>{ep.check_in_status.replace('_', ' ')}</span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       <PixelCal className="inline h-2.5 w-2.5" /> {ep.events?.event_date} · {ep.events?.location}
                     </p>
                     {offers.length > 0 && (

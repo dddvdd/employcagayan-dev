@@ -1,7 +1,8 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useMemo, useState } from 'react'
+import AccessibleDialog from '../../components/ui/AccessibleDialog'
 import { useLegacyTable, legacyCreateColumnHelper, getCoreRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table/legacy'
 import { flexRender } from '@tanstack/react-table'
-import Papa from 'papaparse'
 import { toast } from 'sonner'
 import { useAuth } from '../../contexts/AuthContext'
 import { registrantService } from '../../services/registrantService'
@@ -16,6 +17,9 @@ export default function RegistrantsManagement() {
   const [registrants, setRegistrants] = useState([])
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [eventsError, setEventsError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [actionId, setActionId] = useState(null)
 
   // Filters
@@ -37,20 +41,26 @@ export default function RegistrantsManagement() {
   // Edit form state
   const [editForm, setEditForm] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     let alive = true
-    Promise.all([
+    setLoading(true)
+    setLoadError('')
+    setEventsError('')
+    Promise.allSettled([
       registrantService.listAllForAdmin(),
       eventService.listForVacancyFilter(),
-    ]).then(([regs, evs]) => {
+    ]).then(([registrantResult, eventResult]) => {
       if (!alive) return
-      setRegistrants(regs || [])
-      setEvents(evs || [])
-    }).catch((err) => { if (alive) toast.error(`Failed to load registrants: ${err.message}`) })
+      if (registrantResult.status === 'fulfilled') setRegistrants(registrantResult.value || [])
+      else setLoadError(registrantResult.reason?.message || 'Failed to load registrants.')
+      if (eventResult.status === 'fulfilled') setEvents(eventResult.value || [])
+      else setEventsError(eventResult.reason?.message || 'Could not load event filters.')
+    })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   // Build filter options
   const barangays = useMemo(() => [...new Set(registrants.map(r => r.barangay).filter(Boolean))].sort(), [registrants])
@@ -197,6 +207,7 @@ export default function RegistrantsManagement() {
 
   async function handleDelete() {
     if (!deleteRegistrant) return
+    setDeleting(true)
     try {
       await registrantService.removeRegistrant(deleteRegistrant.id)
       toast.success('Registrant deleted.')
@@ -204,6 +215,8 @@ export default function RegistrantsManagement() {
       setDeleteRegistrant(null)
     } catch (err) {
       toast.error(`Delete failed: ${err.message}`)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -213,6 +226,7 @@ export default function RegistrantsManagement() {
       await registrantService.markCheckedIn(reg.id, user?.id)
       toast.success('Successfully checked in!')
       setRegistrants(prev => prev.map(r => r.id === reg.id ? { ...r, check_in_status: 'checked_in', check_in_time: new Date().toISOString() } : r))
+      setViewRegistrant(current => current?.id === reg.id ? null : current)
     } catch (err) {
       toast.error(`Check-in failed: ${err.message}`)
     } finally {
@@ -235,7 +249,7 @@ export default function RegistrantsManagement() {
       province: r.province,
       created_at: r.created_at ? format(new Date(r.created_at), 'yyyy-MM-dd HH:mm:ss') : '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -248,6 +262,8 @@ export default function RegistrantsManagement() {
   const inputCls = 'rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
 
   if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500">Loading registrants...</div>
+
+  if (loadError) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">Registrant records unavailable</h1><p className="mt-2 text-sm">{loadError}</p><button type="button" onClick={() => setReloadKey(key => key + 1)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">
@@ -266,46 +282,49 @@ export default function RegistrantsManagement() {
         </div>
       </div>
 
+      {eventsError && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Event filter unavailable</p><p className="mt-1">Registrant records are loaded, but filtering by event may be unavailable. {eventsError}</p><button type="button" onClick={() => setReloadKey(key => key + 1)} className="mt-2 min-h-10 font-semibold underline">Reload</button></div>}
+
       {/* Filters */}
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <div className="mb-3">
           <input
             type="text"
             placeholder="Search by name, email, unique ID, or contact number..."
+            aria-label="Search registrants"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={`${inputCls} w-full`}
           />
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by event" value={eventFilter} onChange={(e) => setEventFilter(e.target.value)} className={inputCls}>
             <option value="all">All Events</option>
             {events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name} — {eventTypeDisplay(ev)}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by check-in status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
             <option value="checked_in">Checked In</option>
           </select>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by registration type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls}>
             <option value="all">All Types</option>
             <option value="preregistered">Pre-registered</option>
             <option value="walkin">Walk-in</option>
           </select>
-          <select value={provinceFilter} onChange={(e) => setProvinceFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by province" value={provinceFilter} onChange={(e) => setProvinceFilter(e.target.value)} className={inputCls}>
             <option value="all">All Provinces</option>
             {provinces.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
-          <select value={municipalityFilter} onChange={(e) => setMunicipalityFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by municipality or city" value={municipalityFilter} onChange={(e) => setMunicipalityFilter(e.target.value)} className={inputCls}>
             <option value="all">All Municipalities</option>
             {municipalities.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <select value={barangayFilter} onChange={(e) => setBarangayFilter(e.target.value)} className={inputCls}>
+          <select aria-label="Filter by barangay" value={barangayFilter} onChange={(e) => setBarangayFilter(e.target.value)} className={inputCls}>
             <option value="all">All Barangays</option>
             {barangays.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputCls} title="From date" />
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} title="To date" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputCls} aria-label="Registration date from" title="From date" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} aria-label="Registration date to" title="To date" />
         </div>
       </div>
 
@@ -367,6 +386,7 @@ export default function RegistrantsManagement() {
           </div>
         </div>
       </div>
+      {filteredData.length === 0 && <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center"><p className="font-semibold text-slate-800">{registrants.length ? 'No registrants match these filters' : 'No registrants are available yet'}</p><p className="mt-1 text-sm text-slate-600">{registrants.length ? 'Adjust your search or filters to see more records.' : 'Registrants will appear here after they sign up or staff register them.'}</p>{registrants.length > 0 && <button type="button" onClick={resetFilters} className="mt-3 min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Clear filters</button>}</div>}
 
       {/* View Modal */}
       {viewRegistrant && (
@@ -388,7 +408,7 @@ export default function RegistrantsManagement() {
             <div className="pt-2">
               {viewRegistrant.check_in_status !== 'checked_in' ? (
                 <button
-                  onClick={() => { handleManualCheckin(viewRegistrant); setViewRegistrant(null) }}
+                  onClick={() => handleManualCheckin(viewRegistrant)}
                   disabled={actionId === viewRegistrant.id}
                   className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
@@ -404,7 +424,7 @@ export default function RegistrantsManagement() {
 
       {/* Edit Modal */}
       {editRegistrant && (
-        <Modal onClose={() => setEditRegistrant(null)} title="Edit Registrant">
+        <Modal onClose={() => setEditRegistrant(null)} closeDisabled={savingEdit} title="Edit Registrant">
           <div className="grid gap-3 sm:grid-cols-2 text-sm">
             <Field label="First name"><input className={`${inputCls} w-full`} value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })} /></Field>
             <Field label="Last name"><input className={`${inputCls} w-full`} value={editForm.last_name} onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })} /></Field>
@@ -445,13 +465,13 @@ export default function RegistrantsManagement() {
 
       {/* Delete Modal */}
       {deleteRegistrant && (
-        <Modal onClose={() => setDeleteRegistrant(null)} title="Confirm Delete">
+        <Modal onClose={() => setDeleteRegistrant(null)} closeDisabled={deleting} title="Confirm Delete">
           <p className="text-sm text-slate-600">
             Are you sure you want to delete <strong>{[deleteRegistrant.first_name, deleteRegistrant.middle_name, deleteRegistrant.last_name].filter(Boolean).join(' ')}</strong> ({deleteRegistrant.unique_id})? This action cannot be undone.
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <button onClick={() => setDeleteRegistrant(null)} className="rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button onClick={handleDelete} className="rounded-lg bg-red-600 py-2.5 font-semibold text-white hover:bg-red-700">Delete</button>
+            <button type="button" disabled={deleting} onClick={() => setDeleteRegistrant(null)} className="rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+            <button type="button" disabled={deleting} onClick={handleDelete} className="rounded-lg bg-red-600 py-2.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50">{deleting ? 'Deleting…' : 'Delete'}</button>
           </div>
         </Modal>
       )}
@@ -459,17 +479,16 @@ export default function RegistrantsManagement() {
   )
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, closeDisabled = false }) {
+  const titleId = `dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={closeDisabled} labelledBy={titleId} className="max-w-lg">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+          <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" disabled={closeDisabled} aria-label={`Close ${title}`} onClick={onClose} className="grid h-11 w-11 place-items-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 

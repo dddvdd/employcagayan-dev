@@ -1,4 +1,4 @@
-export const EXPLANATION_VERSION = 'explanation-v1'
+export const EXPLANATION_VERSION = 'explanation-v4-source-bound'
 
 export const EXPLANATION_DIRECTIONS = Object.freeze({
   JOBSEEKER_TO_VACANCY: 'jobseeker_to_vacancy',
@@ -59,6 +59,9 @@ const SAFE_DETAIL_KEYS = new Set([
   'name',
   'candidate_min',
   'vacancy_max',
+  'source_field',
+  'source_text',
+  'kind',
 ])
 
 const safeDetails = (details) => {
@@ -511,23 +514,33 @@ export function buildMatchExplanation({
           ? 'needs_review'
           : 'eligible',
     versions: {
-      eligibility: eligibility.model_version ?? null,
+      eligibility: eligibility.rules_version ?? eligibility.model_version ?? null,
       matching: deterministic.model_version ?? null,
       semantic: semantic?.model_version ?? null,
       hybrid: hybrid?.model_version ?? null,
+      keyword: hybrid?.keyword_support?.model_version ?? null,
     },
     eligibility: {
+      rules_version: eligibility.rules_version ?? null,
+      evaluated_at: eligibility.evaluated_at ?? null,
+      data_confidence: eligibility.data_confidence ? {...eligibility.data_confidence} : null,
       status: eligibility.status,
       blocking_reasons: [...(eligibility.blocking_reasons || [])],
       warnings: [...(eligibility.warnings || [])],
       reasons: eligibilityReasons,
     },
+    reviewed_skill_support: hybrid?.reviewed_skill_support ?? null,
+    keyword_support: hybrid?.keyword_support ?? null,
+    source_binding: hybrid?.source_binding ?? null,
     scores: {
       fit_score: numberOrNull(deterministic.fit_score),
       coverage_score: numberOrNull(deterministic.coverage_score),
       ranking_score: numberOrNull(deterministic.ranking_score),
       semantic_score: numberOrNull(semantic?.score),
       hybrid_score: numberOrNull(hybrid?.score),
+      base_hybrid_score: numberOrNull(hybrid?.base_score ?? hybrid?.score),
+      reviewed_skill_bonus: numberOrNull(hybrid?.reviewed_skill_support?.applied_bonus) ?? 0,
+      keyword_bonus: numberOrNull(hybrid?.keyword_support?.applied_bonus) ?? 0,
     },
     strengths: reasons.strengths,
     gaps: reasons.gaps,

@@ -5,6 +5,9 @@ import { PixelStar, PixelUser, PixelArrow, PixelBriefcase, PixelPin, PixelCal } 
 import ThemeToggle from '../../components/ThemeToggle'
 import { useAuth } from '../../contexts/AuthContext'
 import { workExperienceService } from '../../services/workExperienceService'
+import { formatBirthdate } from '../../domain/birthdate'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
+import ResumeManager from '../../components/jobseeker/ResumeManager.jsx'
 
 function formatTotalWorkExperience(items) {
   const today = new Date()
@@ -33,23 +36,44 @@ function formatWorkExperienceDate(value) {
 // with a clear "Edit Profile" entry into the existing /register editor.
 export default function ProfilePage() {
   const { user } = useAuth()
-  const { participant, loading: participantLoading } = useParticipant()
-  const { profile, loading: profileLoading } = useJobseekerProfile(participant?.id)
+  const { participant, loading: participantLoading, error: participantError } = useParticipant()
+  const { profile, loading: profileLoading, error: profileError } = useJobseekerProfile(participant?.id)
   const [workExperiences, setWorkExperiences] = useState([])
+  const [workExperienceLoading, setWorkExperienceLoading] = useState(true)
+  const [workExperienceError, setWorkExperienceError] = useState(false)
+  const [workExperienceReload, setWorkExperienceReload] = useState(0)
   const missing = !participantLoading && !participant
   const loading = participantLoading || profileLoading
 
   useEffect(() => {
-    if (!participant) return
-    workExperienceService.listMine().then(setWorkExperiences).catch(() => setWorkExperiences([]))
-  }, [participant])
+    if (!participant) { setWorkExperienceLoading(false); return }
+    let alive = true
+    setWorkExperienceLoading(true)
+    workExperienceService.listMine()
+      .then((rows) => { if (alive) { setWorkExperiences(rows || []); setWorkExperienceError(false) } })
+      .catch(() => { if (alive) setWorkExperienceError(true) })
+      .finally(() => { if (alive) setWorkExperienceLoading(false) })
+    return () => { alive = false }
+  }, [participant, workExperienceReload])
 
-  if (loading) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading your profile…</main>
+  if (loading) return <PageLoadingState>Loading your profile…</PageLoadingState>
+
+  if (participantError || profileError) return (
+    <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+      <div className="absolute right-4 top-4"><ThemeToggle /></div>
+      <section role="alert" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Your profile couldn’t be loaded</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection, then retry. Your saved information is unchanged.</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Retry profile</button>
+      </section>
+    </main>
+  )
 
   if (missing) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
-        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+        <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+          <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <PixelStar className="mx-auto h-4 w-4 text-amber-400" />
           <h1 className="mt-3 text-xl font-bold text-slate-900">No Profile Yet</h1>
           <p className="mt-2 text-sm text-slate-500">Build your reusable Job Seeker Profile to start joining Quests.</p>
@@ -91,15 +115,15 @@ export default function ProfilePage() {
           : 'Not specified'
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-widest text-blue-700">
             <PixelArrow className="h-3 w-3 rotate-180" /> Quest Board
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link to="/pass" className="text-xs font-semibold text-slate-600 hover:text-slate-900">My Pass</Link>
+          <Link to="/pass" className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white">My Pass</Link>
           </div>
         </div>
       </header>
@@ -114,7 +138,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
-          <aside className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 lg:sticky lg:top-24">
+          <aside className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:sticky lg:top-24">
             <p className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">Profile menu</p>
             <nav className="space-y-1" aria-label="Profile menu">
               <NavLink to="/jobseeker/recommendations" className={({ isActive }) => `group flex min-h-11 items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${isActive ? 'bg-blue-700 font-bold text-white' : 'font-semibold text-slate-700 hover:bg-blue-700 hover:text-white focus-visible:bg-blue-700 focus-visible:text-white'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300`}>
@@ -147,7 +171,7 @@ export default function ProfilePage() {
             </nav>
           </aside>
 
-          <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <header className="bg-blue-700 px-6 py-5 text-white">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -162,7 +186,7 @@ export default function ProfilePage() {
           <dl className="p-6">
             <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-700"><PixelPin className="h-3 w-3" /> Personal & Contact</p>
             <Row label="Full name" value={`${profile?.first_name || ''} ${profile?.middle_name || ''} ${profile?.last_name || ''}`.replace(/\s+/g, ' ').trim()} />
-            <Row label="Birthdate" value={profile?.birthdate} />
+            <Row label="Birthdate" value={formatBirthdate(profile?.birthdate)} />
             <Row label="Sex" value={profile?.sex} />
             <Row label="Civil status" value={profile?.civil_status} />
             <Row label="Address" value={address} />
@@ -171,8 +195,9 @@ export default function ProfilePage() {
 
             <p className="mb-2 mt-6 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-700"><PixelBriefcase className="h-3 w-3" /> Work & Skills</p>
             <Row label="Employment status" value={profile?.current_employment_status} />
-            <Row label="Years of experience" value={formatTotalWorkExperience(workExperiences)} />
-            <Row label="Previous occupation" value={latestWorkExperienceLabel} />
+            <Row label="Years of experience" value={workExperienceLoading ? 'Loading…' : workExperienceError ? 'Could not load work history' : formatTotalWorkExperience(workExperiences)} />
+            <Row label="Previous occupation" value={workExperienceLoading ? 'Loading…' : workExperienceError ? 'Could not load work history' : latestWorkExperienceLabel} />
+            {workExperienceError && <div role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><p>Your work history could not be loaded, so experience totals may be incomplete.</p><button type="button" onClick={() => setWorkExperienceReload((key) => key + 1)} className="mt-2 min-h-10 rounded-md px-3 font-semibold underline">Try again</button></div>}
             <Row label="Skills" value={profile?.skills} />
             <Row label="Desired occupation" value={profile?.desired_occupation ? `${profile.desired_occupation}${profile.desired_industry ? ` (${profile.desired_industry})` : ''}` : ''} />
             <Row label="Desired salary" value={profile?.desired_salary} />
@@ -185,13 +210,9 @@ export default function ProfilePage() {
             <Row label="Education" value={profile?.highest_educational_attainment || 'Select educational attainment'} />
             <Row label="Employment preference" value={profile?.employment_preference || 'Local'} />
 
-            {profile?.resume_path && (
-              <div className="mt-6 rounded-xl bg-slate-50 p-4">
-                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500"><PixelCal className="h-3 w-3" /> Resume on file</p>
-                <p className="mt-1 text-sm text-emerald-700">✓ A resume is attached to your profile.</p>
-              </div>
-            )}
+
           </dl>
+          {profile?.participant_id && user?.id && <ResumeManager key={user.id} userId={user.id} initialPath={profile.resume_path} />}
 
           </section>
         </div>

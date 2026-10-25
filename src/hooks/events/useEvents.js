@@ -21,29 +21,35 @@ export function useActiveEvents() {
 export function useStaffEvents() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
     let alive = true
+    setLoading(true)
     eventService
       .listForStaff()
-      .then((rows) => { if (alive) { setEvents(rows || []); setLoading(false) } })
-      .catch(() => { if (alive) { setEvents([]); setLoading(false) } })
+      .then((rows) => { if (alive) { setEvents(rows || []); setError(false); setLoading(false) } })
+      .catch(() => { if (alive) { setError(true); setLoading(false) } })
     return () => { alive = false }
-  }, [])
-  return { events, loading }
+  }, [reloadKey])
+  return { events, loading, error, retry: () => setReloadKey((key) => key + 1) }
 }
 
 export function useStaffEventsAnyStatus() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
     let alive = true
+    setLoading(true)
     eventService
       .listForStaffAnyStatus()
-      .then((rows) => { if (alive) { setEvents(rows || []); setLoading(false) } })
-      .catch(() => { if (alive) { setEvents([]); setLoading(false) } })
+      .then((rows) => { if (alive) { setEvents(rows || []); setError(false); setLoading(false) } })
+      .catch(() => { if (alive) { setError(true); setLoading(false) } })
     return () => { alive = false }
-  }, [])
-  return { events, loading }
+  }, [reloadKey])
+  return { events, loading, error, retry: () => setReloadKey((key) => key + 1) }
 }
 
 export function useAllEventsOrdered() {

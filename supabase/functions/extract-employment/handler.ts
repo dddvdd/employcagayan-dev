@@ -1,3 +1,5 @@
+import {validateExtractionResponse, EXTRACTION_VERSION} from '../_shared/extraction-contract.js'
+import {validateManagedRequest} from './managed.js'
 // supabase/functions/extract-employment/handler.ts
 // Request handling for the AI extraction endpoint.
 //
@@ -26,17 +28,7 @@ export const ALLOWED_ROLES = ['admin', 'staff', 'supervisor']
 /** Conservative ceiling on submitted text. Resumes and vacancy ads are far below this. */
 export const MAX_TEXT_LENGTH = 20_000
 
-/** Categories the provider contract must return. */
-const REQUIRED_ARRAYS = [
-  'occupations',
-  'skills',
-  'certifications',
-  'education_requirements',
-  'experience_requirements',
-  'industries',
-]
-
-export const EXTRACTION_VERSION = 'ai-extraction-v1'
+export { EXTRACTION_VERSION }
 
 export function newRequestId(): string {
   return crypto.randomUUID()
@@ -91,6 +83,26 @@ export function validatePayload(body: unknown): PayloadResult {
   return { ok: true, text }
 }
 
+export const MAX_REQUEST_BYTES=130_000
+async function readRequestJson(req: Request): Promise<{ok:true; body:unknown}|{ok:false;status:number}> {
+ const reader=req.body?.getReader()
+ if(!reader)return {ok:false,status:400}
+ let size=0
+ const chunks:Uint8Array[]=[]
+ try{
+  while(true){
+   const {done,value}=await reader.read()
+   if(done)break
+   size+=value.byteLength
+   if(size>MAX_REQUEST_BYTES){await reader.cancel();return {ok:false,status:413}}
+   chunks.push(value)
+  }
+  const bytes=new Uint8Array(size);let offset=0
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength}
+  return {ok:true,body:JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))}
+ }catch{return {ok:false,status:400}}
+}
+
 /** Generic caller-facing failure. Never carries internal detail. */
 export function callerError(
   status: number,
@@ -104,21 +116,18 @@ export function callerError(
   })
 }
 
-/** Coerce a provider payload into the documented contract. */
+/** Validate and allowlist provider proposals before they reach any consumer. */
 export function normalizeExtraction(
-  parsed: Record<string, unknown>,
-  meta: { latencyMs: number; inputTokens: number | null; outputTokens: number | null },
-): Record<string, unknown> {
-  const extraction: Record<string, unknown> = { ...parsed }
-  extraction.extraction_version = EXTRACTION_VERSION
-  for (const category of REQUIRED_ARRAYS) {
-    if (!Array.isArray(extraction[category])) extraction[category] = []
-  }
-  extraction.status = 'success'
-  extraction.latency_ms = meta.latencyMs
-  extraction.input_tokens = meta.inputTokens
-  extraction.output_tokens = meta.outputTokens
-  return extraction
+ parsed: unknown,
+ meta: {latencyMs: number; inputTokens: number | null; outputTokens: number | null; provider?: string; model?: string},
+ sourceText?: string,
+): Record<string, unknown> | null {
+ const result=validateExtractionResponse(parsed,{sourceText})
+ if(!result.valid)return null
+ const count=(value: unknown)=>Number.isSafeInteger(value)&&Number(value)>=0?value:null
+ return {...result.sanitized,status:'success',latency_ms:count(meta.latencyMs),
+   input_tokens:count(meta.inputTokens),output_tokens:count(meta.outputTokens),
+   provider:meta.provider??'openrouter',model:meta.model??'openai/gpt-4o-mini'}
 }
 
 export interface HandlerDeps {
@@ -134,6 +143,7 @@ export interface HandlerDeps {
   consumeQuota: (token: string) => Promise<boolean>
   /** Call the extraction provider. */
   callProvider: (text: string) => Promise<ProviderResult>
+  runManaged?: (token: string, body: Record<string, unknown>) => Promise<{status: number; body: Record<string, unknown>}>
   /** Explicit origin allowlist. */
   allowedOrigins: string[]
   /** Sanitized operational log sink. */
@@ -141,7 +151,7 @@ export interface HandlerDeps {
 }
 
 export type ProviderResult =
-  | { ok: true; content: string; inputTokens: number | null; outputTokens: number | null }
+  | { ok: true; content: string; inputTokens: number | null; outputTokens: number | null; provider?: string; model?: string }
   | { ok: false; status: number }
 
 export function createHandler(deps: HandlerDeps): (req: Request) => Promise<Response> {
@@ -182,17 +192,28 @@ export function createHandler(deps: HandlerDeps): (req: Request) => Promise<Resp
 
     // 3. Content type and payload bounds, before any provider spend.
     const contentType = req.headers.get('Content-Type') ?? ''
-    if (!contentType.toLowerCase().includes('application/json')) {
+    if (!/^application\/json(?:\s*;|\s*$)/i.test(contentType)) {
       done('unsupported_media_type', actor)
       return callerError(415, 'Content-Type must be application/json', requestId, cors)
     }
 
-    let body: unknown
-    try {
-      body = await req.json()
-    } catch {
-      done('malformed_json', actor)
-      return callerError(400, 'Request body must be valid JSON', requestId, cors)
+    const decoded = await readRequestJson(req)
+    if (!decoded.ok) {
+      done(decoded.status===413?'payload_too_large':'malformed_json',actor)
+      return callerError(decoded.status,decoded.status===413?'Request body is too large':'Request body must be valid JSON',requestId,cors)
+    }
+    const body=decoded.body
+
+    if (typeof body === 'object' && body !== null && (body as Record<string, unknown>).mode === 'managed') {
+      if (!validateManagedRequest(body)) return callerError(400, 'Choose a valid employment source', requestId, cors)
+      if (!deps.runManaged) return callerError(503, 'Generation is unavailable', requestId, cors)
+      // Guarded begin charges quota exactly once; the standalone branch below
+      // keeps its existing quota behavior.
+      const result = await deps.runManaged(token, body as Record<string, unknown>)
+      done('managed_request_finished', {...actor, status: result.status})
+      return new Response(JSON.stringify({...result.body, request_id: requestId}), {
+        status: result.status, headers: {...cors, 'Content-Type': 'application/json'},
+      })
     }
 
     const payload = validatePayload(body)
@@ -228,7 +249,13 @@ export function createHandler(deps: HandlerDeps): (req: Request) => Promise<Resp
       latencyMs: Date.now() - providerStarted,
       inputTokens: provider.inputTokens,
       outputTokens: provider.outputTokens,
-    })
+      provider: provider.provider,
+      model: provider.model,
+    }, payload.text)
+    if (!extraction) {
+      done('provider_invalid_contract', actor)
+      return callerError(502, 'Unable to process extraction request', requestId, cors)
+    }
     done('success', actor)
 
     return new Response(JSON.stringify(extraction), {

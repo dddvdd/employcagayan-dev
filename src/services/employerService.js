@@ -42,6 +42,10 @@ export async function create(employer) {
   )
 }
 
+export async function registerApplication(application) {
+  return unwrapRpc(await supabase.rpc('register_employer_application', { p_application: application }), 'Could not submit your company application')
+}
+
 export async function update(id, patch) {
   return unwrap(
     await supabase.from('employers').update(patch).eq('id', id),
@@ -137,6 +141,22 @@ export async function linkAccount(employerId, email) {
   )
 }
 
+export async function getLinkedAccount(userId) {
+  return unwrap(
+    await supabase.from('profiles').select('id,email,role,is_active').eq('id', userId).maybeSingle(),
+    'Could not load linked account status'
+  )
+}
+
+export async function reactivateAccount(employerId, email, reasonCode) {
+  return unwrapRpc(
+    await supabase.rpc('admin_reactivate_employer_account', {
+      p_employer_id: employerId, p_email: email || null, p_reason_code: reasonCode,
+    }),
+    'Account activation failed'
+  )
+}
+
 export async function resetPassword(userId, password) {
   return unwrapRpc(
     await supabase.rpc('admin_reset_password', { p_user_id: userId, p_password: password }),
@@ -150,6 +170,7 @@ export const employerService = {
   getByRegisteredUser,
   getById,
   create,
+  registerApplication,
   update,
   updateSelf,
   remove,
@@ -158,6 +179,8 @@ export const employerService = {
   listOwnDefinitions,
   listEventEmployers,
   listAccreditation,
+  getLinkedAccount,
+  reactivateAccount,
   approve,
   reject,
   linkAccount,

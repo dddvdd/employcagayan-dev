@@ -6,7 +6,7 @@ import { createIntelligenceDashboardLoader } from '../../services/employmentInte
 import { eventService } from '../../services/eventService'
 import { MetricCard, MetricGrid, MetricState, DashboardSkeleton, DashboardError, BreakdownChart, SkillsTable, ApplicationSeries, PANEL, BUTTON } from '../../components/intelligence/IntelligencePanels.jsx'
 
-const INPUT='min-h-[44px] min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300'
+const INPUT='min-h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus-visible:ring-blue-900'
 function initialFilters() {
   const today=new Date()
   return {start:today.getUTCFullYear()+'-01-01',end:new Date(today.getTime()+86400000).toISOString().slice(0,10),period:'month',eventId:''}
@@ -69,7 +69,7 @@ export default function EmploymentIntelligencePage() {
     const response=group.data
     if (request.quality) return <>
       <p className="text-sm text-slate-600">Coverage describes structured records, not the absence of skills, career goals, requirements or employment.</p>
-      <h3 className="font-semibold text-slate-900">Current structured-data snapshot</h3>
+      <h3 className="font-semibold text-slate-900 dark:text-slate-100">Current structured-data snapshot</h3>
       <MetricGrid ids={response.cells.filter(cell=>getMetricDefinition(cell.metric_id).date_basis==='current_snapshot').map(cell=>cell.metric_id)} response={response} />
       <h3 className="font-semibold text-slate-900">Application cohort completeness · {filters.start} to before {filters.end}</h3>
       <MetricGrid ids={response.cells.filter(cell=>getMetricDefinition(cell.metric_id).date_basis!=='current_snapshot').map(cell=>cell.metric_id)} response={response} />
@@ -86,7 +86,7 @@ export default function EmploymentIntelligencePage() {
       <p className="text-sm leading-relaxed text-slate-600">Activity counts use their own submission, interview-result and hire dates. Conversion rates below use the submitted-application cohort and currently recorded linked results. Interest is separate from a formal application; interview records are separate from completed-interview lifecycle data.</p>
       <MetricGrid ids={request.ids.filter(id=>getMetricDefinition(id).measure==='count'&&id!=='candidate_interest_count')} response={response} />
       <MetricCard id="candidate_interest_count" cell={response.cells.find(cell=>cell.metric_id==='candidate_interest_count')} />
-      <h3 className="font-semibold text-slate-900">Application cohort conversions</h3>
+      <h3 className="font-semibold text-slate-900 dark:text-slate-100">Application cohort conversions</h3>
       <p className="text-sm text-slate-600">Observed using current records. Cohorts are not guaranteed to have completed follow-up; unlinked interview records are excluded.</p>
       <MetricGrid ids={request.ids.filter(id=>getMetricDefinition(id).measure==='rate')} response={response} />
     </>
@@ -95,7 +95,7 @@ export default function EmploymentIntelligencePage() {
       return <>
         <div className={PANEL+' overflow-x-auto'}><table className="w-full text-left text-sm">
           <caption className="mb-3 text-left font-semibold text-slate-900">Selected event activity</caption>
-          <thead><tr className="border-b text-slate-600">{['Event scope','Date','Distinct persons','Applications','Interview records','Confirmed hires'].map(text=><th scope="col" key={text} className="px-2 py-3">{text}</th>)}</tr></thead>
+          <thead><tr className="border-b border-slate-200 text-slate-600 dark:border-slate-700">{['Event scope','Date','Distinct persons','Applications','Interview records','Confirmed hires'].map(text=><th scope="col" key={text} className="px-2 py-3">{text}</th>)}</tr></thead>
           <tbody><tr className="text-slate-800"><th scope="row" className="px-2 py-3 font-medium">{selected?.name??'All events in selected dates'}</th><td className="px-2 py-3">{selected?.date??filters.start+' to before '+filters.end}</td>
             {['event_unique_participants','event_application_count','event_interview_count','event_hire_count'].map(id=><td className="px-2 py-3" key={id}>{metricView(id,response.cells.find(cell=>cell.metric_id===id)).display}</td>)}
           </tr></tbody>
@@ -112,7 +112,7 @@ export default function EmploymentIntelligencePage() {
   return <div className="min-w-0 space-y-6 p-4 sm:p-6 lg:p-8">
     <header className="border-b border-slate-200 pb-5">
       <p className="mb-2 text-xs font-bold uppercase tracking-wider text-role-admin">Admin operations</p>
-      <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Employment Intelligence</h1>
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 sm:text-3xl">Employment Intelligence</h1>
       <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-600">Figures reflect records currently captured in the PESO employment platform and should not be interpreted as complete provincial labor-market estimates.</p>
     </header>
     <form onSubmit={applyFilters} className={PANEL+' space-y-3'} aria-label="Date filters">
@@ -132,7 +132,7 @@ export default function EmploymentIntelligencePage() {
         className={item.id===sectionId?'min-h-[44px] rounded-lg border border-slate-900 bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300':BUTTON}>{item.label}</button>)}
     </nav>
     <section aria-labelledby="intelligence-section-title" className="min-w-0 space-y-5">
-      <h2 id="intelligence-section-title" className="text-xl font-bold text-slate-900">{section.label}</h2>
+      <h2 id="intelligence-section-title" className="text-xl font-bold text-slate-900 dark:text-slate-100">{section.label}</h2>
       <p className="text-sm text-slate-600">{section.snapshots||section.breakdowns||section.quality ? 'Current snapshot data is labeled separately from dated activity.' : 'Dated operational activity within the selected range.'}</p>
       {note&&<p role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">{note}</p>}
       {sectionId==='events'&&<div className={PANEL}>

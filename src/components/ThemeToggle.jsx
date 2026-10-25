@@ -1,73 +1,121 @@
 import { useEffect, useState } from 'react'
 
-function SystemIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="12" rx="1" />
-      <path d="M8 20h8M12 16v4" />
-    </svg>
-  )
+const MODES = ['system', 'light', 'dark']
+
+function readPreference() {
+  try {
+    const saved = localStorage.getItem('theme')
+    return MODES.includes(saved) ? saved : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function prefersDark() {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+}
+
+function applyTheme(mode) {
+  const isDark = mode === 'dark' || (mode === 'system' && prefersDark())
+  const root = document.documentElement
+  root.classList.toggle('dark', isDark)
+  root.dataset.themeMode = mode
+  root.style.colorScheme = isDark ? 'dark' : 'light'
+}
+
+function persistTheme(mode) {
+  try {
+    if (mode === 'system') localStorage.removeItem('theme')
+    else localStorage.setItem('theme', mode)
+  } catch {
+    // In-memory theme switching still works when browser storage is blocked.
+  }
+  applyTheme(mode)
+  window.dispatchEvent(new CustomEvent('app-theme-change', { detail: mode }))
 }
 
 function SunIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-5 w-5 text-amber-400">
+      <circle cx="12" cy="12" r="4" fill="currentColor" fillOpacity="0.2" />
+      <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
     </svg>
   )
 }
 
 function MoonIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-5 w-5 text-slate-700">
+      <path d="M20.8 14.1A8.6 8.6 0 0 1 9.9 3.2 8.8 8.8 0 1 0 20.8 14.1Z" />
     </svg>
   )
 }
 
-const MODES = ['system', 'light', 'dark']
-const LABEL = { system: 'Theme: system (switch to light)', light: 'Theme: light (switch to dark)', dark: 'Theme: dark (switch to system)' }
-const ICON = { system: SystemIcon, light: SunIcon, dark: MoonIcon }
-
-function apply(mode) {
-  const dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
+function SystemIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-5 w-5"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
 }
 
-export default function ThemeToggle() {
-  const [mode, setMode] = useState(() => {
-    try { return localStorage.getItem('theme') || 'system' } catch { return 'system' }
-  })
+export default function ThemeToggle({ className = '' }) {
+  const [mode, setMode] = useState(readPreference)
+  const [systemDark, setSystemDark] = useState(prefersDark)
 
   useEffect(() => {
-    apply(mode)
-    if (mode !== 'system') return
-    // Follow OS preference live while in system mode.
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => apply('system')
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [mode])
+    const syncSavedPreference = () => setMode(readPreference())
+    const syncLocalPreference = (event) => {
+      const nextMode = MODES.includes(event.detail) ? event.detail : readPreference()
+      setMode(nextMode)
+    }
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    const syncSystemPreference = (event) => {
+      setSystemDark(event.matches)
+    }
 
-  function cycle() {
-    const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length]
-    setMode(next)
-    try {
-      if (next === 'system') localStorage.removeItem('theme')
-      else localStorage.setItem('theme', next)
-    } catch {}
+    window.addEventListener('storage', syncSavedPreference)
+    window.addEventListener('app-theme-change', syncLocalPreference)
+    media?.addEventListener?.('change', syncSystemPreference)
+    return () => {
+      window.removeEventListener('storage', syncSavedPreference)
+      window.removeEventListener('app-theme-change', syncLocalPreference)
+      media?.removeEventListener?.('change', syncSystemPreference)
+    }
+  }, [])
+
+  useEffect(() => { applyTheme(mode) }, [mode, systemDark])
+
+  const isDark = mode === 'dark' || (mode === 'system' && systemDark)
+
+  function toggle() {
+    // Direct, predictable toggle: if currently dark (explicit or system), switch to light.
+    // If currently light, switch to dark.
+    const nextMode = isDark ? 'light' : 'dark'
+    setMode(nextMode)
+    persistTheme(nextMode)
   }
 
-  const Icon = ICON[mode]
+  function handleContextMenu(event) {
+    event.preventDefault()
+    setMode('system')
+    persistTheme('system')
+  }
+
+  const label = isDark
+    ? 'Switch to light mode (Right-click to match system)'
+    : 'Switch to dark mode (Right-click to match system)'
+
   return (
     <button
-      onClick={cycle}
-      aria-label={LABEL[mode]}
-      title={LABEL[mode]}
-      className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition-colors hover:bg-slate-100"
+      type="button"
+      onClick={toggle}
+      onContextMenu={handleContextMenu}
+      aria-label={label}
+      title={label}
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 ${
+        isDark
+          ? 'border-slate-700 bg-slate-900 text-amber-400 hover:bg-slate-800 hover:text-amber-300 focus-visible:ring-blue-950 dark:border-slate-700 dark:bg-slate-900 dark:text-amber-400 dark:hover:bg-slate-800 dark:hover:text-amber-300 dark:focus-visible:ring-blue-950'
+          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-blue-200'
+      } ${className}`}
     >
-      <Icon />
+      {isDark ? <SunIcon /> : <MoonIcon />}
     </button>
   )
 }

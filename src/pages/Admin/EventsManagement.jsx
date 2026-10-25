@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { eventService } from '../../services/eventService'
 import { eventVacancyService } from '../../services/eventVacancyService'
 import { format } from 'date-fns'
+import AccessibleDialog from '../../components/ui/AccessibleDialog'
 import {
   EVENT_TYPE_OPTIONS,
   RECRUITMENT_TYPE_OPTIONS,
@@ -113,6 +114,7 @@ export default function EventsManagement() {
   const [registrantCounts, setRegistrantCounts] = useState({})
   const [vacancyCounts, setVacancyCounts] = useState({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   // Modals
   const [createOpen, setCreateOpen] = useState(false)
@@ -128,13 +130,15 @@ export default function EventsManagement() {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    loadData()
+    loadData(true)
     // Re-evaluate statuses as time passes (e.g. upcoming -> ongoing -> completed)
     const interval = setInterval(() => { syncStatuses() }, 30000)
     return () => clearInterval(interval)
   }, [])
 
-  async function loadData() {
+  async function loadData(showLoading = false) {
+    if (showLoading) setLoading(true)
+    setLoadError('')
     try {
       const [rawEvents, regData, vacData] = await Promise.all([
         eventService.listAllAdmin(),
@@ -163,9 +167,9 @@ export default function EventsManagement() {
       setRegistrantCounts(regCounts)
       setVacancyCounts(vacCounts)
     } catch (err) {
-      toast.error(`Failed to load events: ${err.message}`)
+      setLoadError(err.message || 'Failed to load events.')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }
 
@@ -296,18 +300,20 @@ export default function EventsManagement() {
     )
   }
 
-  const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white focus:border-blue-500 focus:outline-none'
+  const inputCls = 'min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 focus-visible:border-blue-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-900'
 
-  if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500">Loading events...</div>
+  if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500" role="status" aria-live="polite">Loading events…</div>
+
+  if (loadError) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">Events unavailable</h1><p className="mt-2 text-sm">{loadError}</p><button type="button" onClick={() => loadData(true)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Event Management</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Event Management</h1>
           <p className="text-sm text-slate-600">{events.length} event(s)</p>
         </div>
-        <button onClick={() => setCreateOpen(true)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+        <button onClick={() => setCreateOpen(true)} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">
           + Create Event
         </button>
       </div>
@@ -315,13 +321,13 @@ export default function EventsManagement() {
       {/* Events grid */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {events.map(event => (
-          <div key={event.id} className="flex flex-col rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <div key={event.id} className="flex flex-col rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-lg font-bold text-slate-900">{event.event_name}</h3>
               <select
                 value={event.status}
                 onChange={(e) => changeStatus(event, e.target.value)}
-                className={`rounded-full px-2 py-1 text-xs font-bold focus:outline-none ${STATUS_COLORS[event.status] || 'bg-slate-100 text-slate-700'}`}
+                className={`min-h-11 rounded-full px-3 py-1 text-xs font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 ${STATUS_COLORS[event.status] || 'bg-slate-100 text-slate-700'}`}
                 title="Change status"
               >
                 {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
@@ -335,28 +341,28 @@ export default function EventsManagement() {
             </div>
 
             <div className="mt-2 space-y-1 text-sm text-slate-600">
-              <p>📅 {format(new Date(event.event_date), 'MMMM d, yyyy')}</p>
+              <p className="flex items-center gap-2"><EventIcon type="calendar" /> {format(new Date(event.event_date), 'MMMM d, yyyy')}</p>
               {(event.time_from || event.time_to) && (
-                <p>🕘 {formatTime(event.time_from) || '—'} – {formatTime(event.time_to) || '—'}</p>
+                <p className="flex items-center gap-2"><EventIcon type="clock" /> {formatTime(event.time_from) || '—'} – {formatTime(event.time_to) || '—'}</p>
               )}
-              <p>📍 {event.location}</p>
-              {event.venue && <p className="text-xs font-medium text-slate-700">🏢 Venue: {event.venue}</p>}
+              <p className="flex items-center gap-2"><EventIcon type="pin" /> {event.location}</p>
+              {event.venue && <p className="flex items-center gap-2 text-xs font-medium text-slate-700"><EventIcon type="building" /> Venue: {event.venue}</p>}
               {event.description && <p className="text-xs text-slate-500 line-clamp-2">{event.description}</p>}
             </div>
 
             <div className="mt-4 flex gap-2 text-xs">
               <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
-                👤 {registrantCounts[event.id] || 0} registrants
+                <EventIcon type="people" /> {registrantCounts[event.id] || 0} registrants
               </span>
               <span className="rounded-full bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">
-                💼 {vacancyCounts[event.id] || 0} vacancies
+                <EventIcon type="briefcase" /> {vacancyCounts[event.id] || 0} vacancies
               </span>
             </div>
 
             <div className="mt-4 flex gap-2 border-t border-slate-100 pt-3">
-              <button onClick={() => setViewEvent(event)} className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</button>
-              <button onClick={() => openEdit(event)} className="flex-1 rounded-lg bg-blue-700 py-2 text-xs font-semibold text-white hover:bg-blue-800">Edit</button>
-              <button onClick={() => setDeleteEvent(event)} className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-semibold text-white hover:bg-red-700">Delete</button>
+              <button onClick={() => setViewEvent(event)} className="min-h-11 flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">View</button>
+              <button onClick={() => openEdit(event)} className="min-h-11 flex-1 rounded-lg bg-blue-700 py-2 text-xs font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Edit</button>
+              <button onClick={() => setDeleteEvent(event)} className="min-h-11 flex-1 rounded-lg bg-red-600 py-2 text-xs font-semibold text-white hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300">Delete</button>
             </div>
           </div>
         ))}
@@ -368,7 +374,7 @@ export default function EventsManagement() {
 
       {/* Create Event Modal */}
       {createOpen && (
-        <Modal onClose={() => setCreateOpen(false)} title="Create Event">
+        <Modal onClose={() => setCreateOpen(false)} title="Create Event" closeDisabled={creating}>
           <form onSubmit={handleCreate} className="space-y-4">
             <Field label="Event name *"><input required className={inputCls} value={createForm.event_name} onChange={(e) => setCreateForm({ ...createForm, event_name: e.target.value })} /></Field>
             <Field label="Event Type">
@@ -437,7 +443,7 @@ export default function EventsManagement() {
 
       {/* Edit Event Modal */}
       {editEvent && (
-        <Modal onClose={() => setEditEvent(null)} title="Edit Event">
+        <Modal onClose={() => setEditEvent(null)} title="Edit Event" closeDisabled={savingEdit}>
           <div className="space-y-4">
             <Field label="Event name *"><input className={inputCls} value={editForm.event_name} onChange={(e) => setEditForm({ ...editForm, event_name: e.target.value })} /></Field>
             <Field label="Event Type">
@@ -485,7 +491,7 @@ export default function EventsManagement() {
 
       {/* Delete Event Modal */}
       {deleteEvent && (
-        <Modal onClose={() => setDeleteEvent(null)} title="Confirm Delete">
+        <Modal onClose={() => setDeleteEvent(null)} title="Confirm Delete" closeDisabled={deleting}>
           <p className="text-sm text-slate-600">
             Are you sure you want to delete <strong>{deleteEvent.event_name}</strong>? This will also delete its vacancies. This action cannot be undone.
           </p>
@@ -501,18 +507,29 @@ export default function EventsManagement() {
   )
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, closeDisabled = false }) {
+  const titleId = `dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={closeDisabled} labelledBy={titleId} className="max-w-md">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-xl leading-none text-slate-400 hover:text-slate-600">×</button>
+          <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" aria-label={`Close ${title}`} disabled={closeDisabled} onClick={onClose} className="grid h-11 w-11 place-items-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
+}
+
+function EventIcon({ type }) {
+  const paths = {
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    pin: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
+    building: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M9 21v-4h6v4M8 7h2m4 0h2M8 11h2m4 0h2" /></>,
+    people: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
+    briefcase: <><rect x="3" y="7" width="18" height="14" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18m-11 0v2h4v-2" /></>,
+  }
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-slate-500">{paths[type]}</svg>
 }
 
 function Detail({ label, value }) {

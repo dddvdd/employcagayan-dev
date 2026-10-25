@@ -261,14 +261,43 @@ export function buildMatchPresentation({ kind, vacancy, candidate, explanation, 
     score_label: Number.isFinite(score) ? `Match score: ${score} out of 100` : 'Match score unavailable',
     score_help:
       kind === MATCH_PRESENTATION_KIND.JOB
-        ? 'This score compares your structured profile with the job requirements. It combines structured matching with a smaller semantic similarity signal. It is not a hiring decision.'
-        : "This score compares the candidate's structured profile with this vacancy's requirements. It is not a hiring decision.",
+        ? 'This score compares your structured profile with the job requirements. It combines structured matching with smaller signals from semantic similarity, reviewed skill links and matching job keywords. It is not a hiring decision.'
+        : "This score compares the candidate's structured profile with this vacancy's requirements. Smaller signals may come from semantic similarity, reviewed skill links and matching job keywords. It is not a hiring decision.",
     eligibility_status: explanation.eligibility.status,
     eligibility_label: ELIGIBILITY_LABELS[explanation.eligibility.status] || 'Status unavailable',
     headline: formatted.headline,
     summary: formatted.summary,
     strengths: formatted.strengths.slice(0, 3),
     gaps: gaps.slice(0, 3),
+    reviewed_skill_support: explanation.reviewed_skill_support,
+    keyword_support: explanation.keyword_support,
+    source_binding: explanation.source_binding,
+    source_binding_note: explanation.source_binding
+      ? explanation.source_binding.status === 'verified'
+        ? 'Additional matching signals were checked against the same profile and job information used for this comparison.'
+        : explanation.source_binding.status === 'not_evaluated'
+          ? 'Unmet required qualifications take priority. Additional matching signals were not evaluated.'
+          : 'Additional matching signals could not be checked against this profile and job. The score uses structured information only.'
+      : null,
+    keyword_note: explanation.keyword_support
+      ? explanation.keyword_support.status === 'available'
+        ? `Matching keywords add ${explanation.keyword_support.applied_bonus} out of at most ${explanation.keyword_support.max_bonus} ranking points. ${explanation.keyword_support.matched_term_count} of ${explanation.keyword_support.query_term_count} profile keyword terms also appear in the job title or canonical requirements. This does not verify a qualification.`
+        : explanation.keyword_support.status === 'not_evaluated'
+          ? 'Keyword matches do not override unmet required qualifications. No keyword points were added.'
+          : explanation.keyword_support.status === 'not_applicable'
+            ? 'There are no usable canonical profile keywords yet. Your recommendation remains available without a keyword adjustment.'
+            : 'Keyword matching is unavailable. No keyword points were added.'
+      : null,
+    reviewed_skill_note: explanation.reviewed_skill_support
+      ? explanation.reviewed_skill_support.status === 'available'
+        ? `Reviewed links add ${explanation.reviewed_skill_support.applied_bonus} out of at most ${explanation.reviewed_skill_support.max_bonus} ranking points, using verified source skills for ${explanation.reviewed_skill_support.supported_target_count} of ${explanation.reviewed_skill_support.target_count} listed target skills. Required qualifications still need their own evidence.`
+        : explanation.reviewed_skill_support.status === 'unavailable'
+          ? 'Reviewed skill support is unavailable. No skill-link bonus was added.'
+          : explanation.reviewed_skill_support.status === 'not_evaluated'
+            ? 'Reviewed skill links do not override unmet required qualifications. No bonus was added.'
+            : 'No canonical target skills are listed. No skill-link bonus was added.'
+      : null,
+    base_score: explanation.scores.base_hybrid_score,
     semantic_note: formatted.semantic,
     semantic_available: explanation.semantic.available,
     dimensions: explanation.dimensions.map((dimension) => {

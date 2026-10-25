@@ -7,7 +7,7 @@ import { ELIGIBILITY_STATUS } from './eligibility.js'
 
 export const HYBRID_MODEL_VERSION = 'hybrid-v1'
 
-export const SEMANTIC_MODEL_VERSION = 'semantic-v1'
+export const SEMANTIC_MODEL_VERSION = 'semantic-v2-authorized'
 
 /**
  * Hybrid weight configuration.
@@ -109,12 +109,14 @@ export function deriveSemanticStatus(embeddingMetadata) {
  */
 export function computeHybridScore(deterministicResult, semanticResult = null, options = {}) {
   const weights = options.weights || HYBRID_WEIGHTS_V1
+  if(!Number.isFinite(weights.deterministic)||!Number.isFinite(weights.semantic)||weights.semantic<0||weights.deterministic<=weights.semantic||Math.abs(weights.deterministic+weights.semantic-1)>1e-9)throw new RangeError('Hybrid weights must sum to one with deterministic scoring dominant')
   let deterministicRankingScore = deterministicResult?.ranking_score ?? 0
   if (Number.isNaN(deterministicRankingScore)) deterministicRankingScore = 0
 
   // No semantic data available
-  if (!semanticResult || semanticResult.status !== SEMANTIC_STATUS.AVAILABLE) {
-    const status = semanticResult?.status || SEMANTIC_STATUS.MISSING
+  const invalidSemantic=semanticResult?.status===SEMANTIC_STATUS.AVAILABLE && (!Number.isFinite(semanticResult.score)||semanticResult.score<0||semanticResult.score>100)
+  if (!semanticResult || semanticResult.status !== SEMANTIC_STATUS.AVAILABLE || invalidSemantic) {
+    const status = invalidSemantic?SEMANTIC_STATUS.FAILED:semanticResult?.status || SEMANTIC_STATUS.MISSING
     const reasonCode = status === SEMANTIC_STATUS.STALE
       ? HYBRID_REASON_CODES.SEMANTIC_STALE
       : status === SEMANTIC_STATUS.FAILED

@@ -1,0 +1,13 @@
+{
+  "dataset_version": "matching-evaluation-v2",
+  "dataset_id": "validation-review-required",
+  "purpose": "reviewed_validation",
+  "origin": "authorized_deidentified_capture",
+  "privacy_review_reference": null,
+  "as_of": "2026-10-15T00:00:00.000Z",
+  "reference_versions": {
+    "psoc": "source-version-required",
+    "platform_skills": "source-version-required"
+  },
+  "cases": []
+}

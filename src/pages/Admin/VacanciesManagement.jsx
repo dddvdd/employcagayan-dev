@@ -1,3 +1,4 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { toast } from 'sonner'
@@ -8,6 +9,8 @@ import { employerService } from '../../services/employerService'
 import { employerApplicantsService } from '../../services/employerApplicantsService'
 import { format } from 'date-fns'
 import { eventTypeDisplay } from '../../domain/eventTypes'
+import AccessibleDialog from '../../components/ui/AccessibleDialog'
+import { reviewVacancyRequirements } from '../../domain/vacancyRequirementReadiness.js'
 
 const emptyDefForm = {
   employer_id: '',
@@ -16,6 +19,7 @@ const emptyDefForm = {
   salary_range: '',
   place_of_assignment: '',
   qualifications: '',
+  requirements_summary: '',
   principal_name: '',
   available_slots: '',
   is_active: true,
@@ -37,6 +41,8 @@ export default function VacanciesManagement() {
   const [filledCounts, setFilledCounts] = useState({})
   const [filterEvent, setFilterEvent] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [hasLoaded, setHasLoaded] = useState(false)
 
   // Modals
   const [createOpen, setCreateOpen] = useState(false)
@@ -46,7 +52,10 @@ export default function VacanciesManagement() {
   const [addToEventDef, setAddToEventDef] = useState(null)
   const [editOffering, setEditOffering] = useState(null)
   const [deleteOffering, setDeleteOffering] = useState(null)
+  const [closingOffering, setClosingOffering] = useState(false)
   const [applicantsModal, setApplicantsModal] = useState(null)
+  const [applicantsLoading, setApplicantsLoading] = useState(false)
+  const [applicantsError, setApplicantsError] = useState('')
 
   // Forms
   const [defForm, setDefForm] = useState(emptyDefForm)
@@ -59,14 +68,18 @@ export default function VacanciesManagement() {
   const [importing, setImporting] = useState(false)
   const [importReport, setImportReport] = useState(null)
   const fileInputRef = useRef(null)
+  const applicantsRequestRef = useRef(0)
+  const requirementWarnings = reviewVacancyRequirements(defForm)
 
   const TEMPLATE_HEADERS = ['Company Name', 'Position', 'Slots', 'Salary Range', 'Place of Assignment', 'Qualifications', 'Active', 'Event', 'Principal']
 
   useEffect(() => {
-    loadData()
+    loadData(true)
   }, [])
 
-async function loadData() {
+async function loadData(showLoading = false) {
+    if (showLoading) setLoading(true)
+    setLoadError('')
     try {
       const [defData, evData, linkData, empData] = await Promise.all([
         eventVacancyService.listAllAdmin(),
@@ -93,8 +106,9 @@ async function loadData() {
       setEvents(evData || [])
       setEmployers(empData || [])
       setFilledCounts(counts)
+      setHasLoaded(true)
     } catch (err) {
-      toast.error(`Failed to load vacancies: ${err.message}`)
+      setLoadError(err.message || 'Failed to load vacancies.')
     } finally {
       setLoading(false)
     }
@@ -117,6 +131,7 @@ async function handleCreate(e) {
         salary_range: defForm.salary_range || null,
         place_of_assignment: defForm.place_of_assignment || null,
         qualifications: defForm.qualifications || null,
+        requirements_summary: defForm.requirements_summary || null,
         principal_name: defForm.principal_name || null,
         available_slots: defForm.available_slots ? Number(defForm.available_slots) : null,
         created_source: 'admin',
@@ -142,6 +157,7 @@ async function handleCreate(e) {
       salary_range: def.salary_range || '',
       place_of_assignment: def.place_of_assignment || '',
       qualifications: def.qualifications || '',
+      requirements_summary: def.requirements_summary || '',
       principal_name: def.principal_name || '',
       available_slots: def.available_slots ?? '',
       is_active: def.is_active,
@@ -168,6 +184,7 @@ async function loadHistory(id) {
         salary_range: defForm.salary_range || null,
         place_of_assignment: defForm.place_of_assignment || null,
         qualifications: defForm.qualifications || null,
+        requirements_summary: defForm.requirements_summary || null,
         principal_name: defForm.principal_name || null,
         available_slots: defForm.available_slots ? Number(defForm.available_slots) : null,
         created_source: 'admin',
@@ -267,18 +284,46 @@ try {
     }
   }
 
+  async function confirmCloseOffering() {
+    if (!deleteOffering) return
+    setClosingOffering(true)
+    try {
+      await eventVacancyService.closeApplications(deleteOffering.id)
+      toast.success('Applications closed. Existing records are kept.')
+      setDeleteOffering(null)
+      await loadData()
+    } catch (err) {
+      toast.error(`Could not close applications: ${err.message}`)
+    } finally {
+      setClosingOffering(false)
+    }
+  }
+
   // ---------- Applicants per offering ----------
   async function loadApplicants(offering) {
+    const requestId = ++applicantsRequestRef.current
+    setApplicantsModal({ offering, applicants: [] })
+    setApplicantsLoading(true)
+    setApplicantsError('')
     try {
       const data = await employerApplicantsService.listForOffering(offering.id)
+      if (requestId !== applicantsRequestRef.current) return
       setApplicantsModal({ offering, applicants: (data || []).map(d => ({
         id: d.registrant_id || d.id,
         first_name: d.first_name, middle_name: d.middle_name, last_name: d.last_name,
         email: d.email, contact_no: d.contact_no, unique_id: d.unique_id,
       })) })
     } catch (err) {
-      toast.error(`Failed to load applicants: ${err.message}`)
+      if (requestId === applicantsRequestRef.current) setApplicantsError(err.message || 'Failed to load applicants for this offering.')
+    } finally {
+      if (requestId === applicantsRequestRef.current) setApplicantsLoading(false)
     }
+  }
+
+  function closeApplicants() {
+    applicantsRequestRef.current += 1
+    setApplicantsLoading(false)
+    setApplicantsModal(null)
   }
 
   // ---------- Bulk CSV ----------
@@ -288,7 +333,7 @@ try {
       ['Jollibee Foods Corporation', 'Service Crew', '10', 'Php 12,000 - 15,000', 'Tuguegarao City', 'At least SHS graduate', 'yes', 'Trabaho Caravan 2026 - Aparri', ''],
       ['SM Retail Inc.', 'Sales Associate', '10', 'Php 13,000 - 16,000', 'SM City Tuguegarao', 'College level, good communication skills', 'yes', '', ''],
     ]
-    const csv = Papa.unparse([TEMPLATE_HEADERS, ...exampleRows])
+    const csv = spreadsheetCsv([TEMPLATE_HEADERS, ...exampleRows])
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -323,7 +368,7 @@ try {
       skipEmptyLines: 'greedy',
       complete: async (result) => {
         const rows = result.data || []
-        const errors = []
+        const errors = (result.errors || []).map(error => `CSV parse warning: ${error.message}`)
         let insertedDefs = 0
         let insertedOffers = 0
 
@@ -364,6 +409,23 @@ try {
               continue
             }
 
+            const eventName = getField(row, eventAliases)
+            let event = null
+            let slots = null
+            if (eventName) {
+              event = eventByName[eventName.toLowerCase()]
+              if (!event) {
+                errors.push(`Row ${rowNum}: Event "${eventName}" not found.`)
+                continue
+              }
+              const slotsValue = getField(row, slotsAliases)
+              slots = Number(slotsValue)
+              if (!Number.isInteger(slots) || slots < 1) {
+                errors.push(`Row ${rowNum}: Slots must be a positive whole number (got "${slotsValue || 'blank'}").`)
+                continue
+              }
+            }
+
             const key = `${company.toLowerCase()}|${position.toLowerCase()}`
             let defId = defByKey[key]?.id
 
@@ -388,18 +450,7 @@ try {
             }
 
             // Optional event offering
-            const eventName = getField(row, eventAliases)
             if (eventName) {
-              const event = eventByName[eventName.toLowerCase()]
-              if (!event) {
-                errors.push(`Row ${rowNum}: Event "${eventName}" not found.`)
-                continue
-              }
-              const slots = parseInt(getField(row, slotsAliases), 10)
-              if (isNaN(slots) || slots < 1) {
-                errors.push(`Row ${rowNum}: Slots must be a positive number (got "${getField(row, slotsAliases) || 'blank'}").`)
-                continue
-              }
               try {
                 await eventVacancyService.upsertOffering({
                   vacancyDefinitionId: defId,
@@ -429,9 +480,11 @@ try {
     })
   }
 
-  const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white focus:border-blue-500 focus:outline-none'
+  const inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
-  if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500">Loading vacancies...</div>
+  if (loading && !hasLoaded) return <div role="status" aria-live="polite" className="grid min-h-[300px] place-items-center text-slate-500">Loading vacancies...</div>
+
+  if (loadError && !hasLoaded) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">Vacancies unavailable</h1><p className="mt-2 text-sm">{loadError}</p><button type="button" onClick={() => loadData(true)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">
@@ -450,10 +503,12 @@ try {
         </div>
       </div>
 
+      {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Refresh failed; showing the last loaded vacancy data.</p><p className="mt-1">{loadError}</p><button type="button" onClick={() => loadData(true)} className="mt-2 min-h-10 font-semibold underline">Try again</button></div>}
+
       {/* Filter by event */}
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Filter by event</label>
-        <select value={filterEvent} onChange={(e) => setFilterEvent(e.target.value)} className={`${inputCls} max-w-md`}>
+        <label htmlFor="vacancy-event-filter" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Filter by event</label>
+        <select id="vacancy-event-filter" value={filterEvent} onChange={(e) => setFilterEvent(e.target.value)} className={`${inputCls} max-w-md`}>
           <option value="all">All Events</option>
           {events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name}{ev.event_date ? ` (${format(new Date(ev.event_date), 'MMM d, yyyy')})` : ''} — {eventTypeDisplay(ev)}</option>)}
         </select>
@@ -496,6 +551,7 @@ try {
                         <span className="text-xs font-bold text-slate-700">{filled}/{ev.slots_offered}</span>
                       </div>
                       {ev.events?.event_date && <p className="mt-0.5 text-[10px] text-slate-400">{format(new Date(ev.events.event_date), 'MMM d, yyyy')}</p>}
+                      {ev.application_deadline && Date.parse(ev.application_deadline) <= Date.now() && <p className="mt-1 text-xs font-semibold text-amber-800">Applications closed</p>}
                       <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
                         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
                       </div>
@@ -523,16 +579,20 @@ try {
         ))}
       </div>
 
-      {filtered.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No vacancy definitions found for this filter.</p>}
+      {filtered.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center dark:border-slate-700 dark:bg-slate-900">
+        <p className="font-semibold text-slate-700 dark:text-slate-200">{definitions.length === 0 ? 'No vacancy definitions yet' : 'No vacancies match this event'}</p>
+        <p className="mt-1 text-sm text-slate-500">{definitions.length === 0 ? 'Create a vacancy definition, then offer it at an event.' : 'Choose another event or select All Events to see more vacancies.'}</p>
+        {definitions.length === 0 && <button onClick={() => { setDefForm(emptyDefForm); setCreateOpen(true) }} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">Create vacancy</button>}
+      </div>}
 
       {/* Create / Edit Definition Modal */}
       {(createOpen || editDef) && (
-        <Modal onClose={() => { setCreateOpen(false); setEditDef(null) }} title={editDef ? 'Edit Definition' : 'Create Definition'}>
+        <Modal onClose={() => { setCreateOpen(false); setEditDef(null) }} title={editDef ? 'Edit Definition' : 'Create Definition'} closeDisabled={creating || saving}>
           <form onSubmit={editDef ? (e) => { e.preventDefault(); saveDefinition() } : handleCreate} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700">Employer *</label>
-                <select required className={inputCls} value={defForm.employer_id} onChange={(e) => {
+                <label htmlFor="vacancy-employer" className="block text-sm font-medium text-slate-700 dark:text-slate-200">Employer *</label>
+                <select id="vacancy-employer" required className={inputCls} value={defForm.employer_id} onChange={(e) => {
                   const emp = employers.find(em => em.id === e.target.value)
                   setDefForm({ ...defForm, employer_id: e.target.value, company_name: emp?.company_name || '' })
                 }}>
@@ -550,6 +610,14 @@ try {
             <Field label="Available slots"><input type="number" min="0" className={inputCls} value={defForm.available_slots} onChange={(e) => setDefForm({ ...defForm, available_slots: e.target.value })} placeholder="Current openings" /></Field>
             <Field label="Place of assignment"><input className={inputCls} value={defForm.place_of_assignment} onChange={(e) => setDefForm({ ...defForm, place_of_assignment: e.target.value })} /></Field>
             <Field label="Qualifications"><textarea className={inputCls} rows={2} value={defForm.qualifications} onChange={(e) => setDefForm({ ...defForm, qualifications: e.target.value })} /></Field>
+            <Field label="Requirements summary"><textarea className={inputCls} rows={2} value={defForm.requirements_summary} onChange={(e) => setDefForm({ ...defForm, requirements_summary: e.target.value })} /></Field>
+            {requirementWarnings.length > 0 && (
+              <div role="alert" className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="font-semibold">Possible mandatory requirements need structured review.</p>
+                <ul className="mt-1 list-disc pl-5">{requirementWarnings.map((warning, index) => <li key={index}>“{warning.source}”</li>)}</ul>
+                <p>Do not treat this text as confirmed matching eligibility. Ask the employer to add the appropriate structured requirement or correct the text.</p>
+              </div>
+            )}
             {editDef && history.length > 0 && (
               <div className="rounded-lg bg-slate-50 p-3">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Change History</p>
@@ -575,7 +643,7 @@ try {
 
       {/* Add to Event Modal */}
       {addToEventDef && (
-        <Modal onClose={() => setAddToEventDef(null)} title={`Offer "${addToEventDef.position}" at an event`}>
+        <Modal onClose={() => setAddToEventDef(null)} title={`Offer "${addToEventDef.position}" at an event`} closeDisabled={saving}>
           <div className="space-y-4">
             <Field label="Event *">
               <select className={inputCls} value={offeringForm.event_id} onChange={(e) => setOfferingForm({ ...offeringForm, event_id: e.target.value })}>
@@ -594,7 +662,7 @@ try {
 
       {/* Edit Offering Modal */}
       {editOffering && (
-        <Modal onClose={() => setEditOffering(null)} title={`Edit Offering — ${editOffering.definition.position}`}>
+        <Modal onClose={() => setEditOffering(null)} title={`Edit Offering — ${editOffering.definition.position}`} closeDisabled={saving}>
           <div className="space-y-4">
             <p className="text-xs text-slate-500">Event: {editOffering.offering.events?.event_name}</p>
             <Field label="Slots offered *"><input type="number" min="1" className={inputCls} value={offeringForm.slots_offered} onChange={(e) => setOfferingForm({ ...offeringForm, slots_offered: e.target.value })} /></Field>
@@ -608,9 +676,9 @@ try {
 
       {/* Delete Definition Modal */}
       {deleteDef && (
-        <Modal onClose={() => setDeleteDef(null)} title="Confirm Delete">
+        <Modal onClose={() => setDeleteDef(null)} title="Confirm Delete" closeDisabled={deleting}>
           <p className="text-sm text-slate-600">
-            Delete <strong>{deleteDef.position}</strong> at <strong>{deleteDef.company_name}</strong>? This also removes all of its event offerings and applicant links.
+            Delete <strong>{deleteDef.position}</strong> at <strong>{deleteDef.company_name}</strong>? Vacancies with recruitment history must be kept; deactivate them to stop recruitment.
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <button onClick={() => setDeleteDef(null)} className="rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -623,13 +691,14 @@ try {
 
       {/* Delete Offering Modal */}
       {deleteOffering && (
-        <Modal onClose={() => setDeleteOffering(null)} title="Remove Offering">
+        <Modal onClose={() => setDeleteOffering(null)} title="Remove Offering" closeDisabled={deleting || closingOffering}>
           <p className="text-sm text-slate-600">
-            Remove this vacancy offering from <strong>{deleteOffering.events?.event_name}</strong>? Applicant links to it will also be removed.
+            Close applications for this offering at <strong>{deleteOffering.events?.event_name}</strong> to keep its existing records. Removal is available only when there is no recruitment history.
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button onClick={() => setDeleteOffering(null)} className="rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button onClick={confirmDeleteOffering} disabled={deleting} className="rounded-lg bg-red-600 py-2.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+          <div className="mt-4 flex flex-col gap-3">
+            <button onClick={confirmCloseOffering} disabled={deleting || closingOffering} className="min-h-11 rounded-lg bg-blue-700 py-2.5 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{closingOffering ? 'Closing...' : 'Close applications'}</button>
+            <button onClick={() => setDeleteOffering(null)} disabled={deleting || closingOffering} className="min-h-11 rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+            <button onClick={confirmDeleteOffering} disabled={deleting || closingOffering} className="min-h-11 rounded-lg bg-red-600 py-2.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50">
               {deleting ? 'Removing...' : 'Remove'}
             </button>
           </div>
@@ -638,11 +707,18 @@ try {
 
       {/* Applicants Modal */}
       {applicantsModal && (
-        <Modal onClose={() => setApplicantsModal(null)} title="Applicants">
+        <Modal onClose={closeApplicants} title="Applicants">
           <p className="mb-3 text-sm text-slate-500">
-            {applicantsModal.offering.events?.event_name} · {applicantsModal.applicants.length} applicant(s)
+            {applicantsModal.offering.events?.event_name} · {applicantsLoading ? 'Loading applicants…' : applicantsError ? 'Applicant list unavailable' : `${applicantsModal.applicants.length} applicant(s)`}
           </p>
-          {applicantsModal.applicants.length === 0 ? (
+          {applicantsError ? (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
+              <p>Applicants could not be loaded. {applicantsError}</p>
+              <button type="button" onClick={() => loadApplicants(applicantsModal.offering)} className="mt-3 min-h-11 font-semibold underline">Try again</button>
+            </div>
+          ) : applicantsLoading ? (
+            <div role="status" aria-live="polite" className="py-8 text-center text-sm text-slate-500">Loading applicants…</div>
+          ) : applicantsModal.applicants.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">No applicants selected this offering yet.</p>
           ) : (
             <div className="max-h-80 space-y-2 overflow-y-auto">
@@ -677,17 +753,16 @@ try {
   )
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, closeDisabled = false }) {
+  const titleId = `dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={closeDisabled} labelledBy={titleId} className="max-w-md">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-xl leading-none text-slate-400 hover:text-slate-600">×</button>
+          <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" aria-label={`Close ${title}`} disabled={closeDisabled} onClick={onClose} className="grid h-11 w-11 place-items-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 

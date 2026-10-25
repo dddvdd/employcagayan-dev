@@ -22,21 +22,30 @@ export default function EventDetailPage() {
   const [offers, setOffers] = useState([])
   const [loading, setLoading] = useState(true)
   const [notAvailable, setNotAvailable] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [introOpen, setIntroOpen] = useState(false)
 
   // Applicant state
   const [myRegistrations, setMyRegistrations] = useState(null) // null = not loaded yet
+  const [registrationsError, setRegistrationsError] = useState(false)
+  const [registrationReload, setRegistrationReload] = useState(0)
   const [selectedOffers, setSelectedOffers] = useState([])
   const [applying, setApplying] = useState(false)
   const [formalApplications, setFormalApplications] = useState([])
+  const [formalApplicationsError, setFormalApplicationsError] = useState(false)
+  const [formalApplicationsLoading, setFormalApplicationsLoading] = useState(false)
   const [formalApplyingId, setFormalApplyingId] = useState(null)
 
-  const { participant } = useParticipant(Boolean(user))
-  const { profile } = useJobseekerProfile(participant?.id)
+  const { participant, loading: participantLoading, error: participantError } = useParticipant(Boolean(user))
+  const { profile, error: profileError } = useJobseekerProfile(participant?.id)
   const hasProfile = !!profile
 
   useEffect(() => {
     let alive = true
+    setLoading(true)
+    setNotAvailable(false)
+    setLoadError(false)
     Promise.all([
       eventService.getById(eventId),
       eventVacancyService.listActiveForEvent(eventId),
@@ -49,23 +58,25 @@ export default function EventDetailPage() {
         setOffers((offs || []).filter(o => o.vacancy_definitions))
       }
       setLoading(false)
-    }).catch(() => { if (alive) { setLoading(false) } })
+    }).catch(() => { if (alive) { setLoadError(true); setLoading(false) } })
     return () => { alive = false }
-  }, [eventId])
+  }, [eventId, reloadKey])
 
   useEffect(() => {
     setMyRegistrations(null)
+    setRegistrationsError(false)
     setSelectedOffers([])
     if (!user) return
-    if (!participant?.id) return
+    if (participantLoading) return
+    if (!participant?.id) { setRegistrationsError(true); return }
     let alive = true
     participantService.listEventParticipations(participant.id)
-      .then((data) => { if (alive) setMyRegistrations(data || []) })
-      .catch(() => { if (alive) setMyRegistrations([]) })
+      .then((data) => { if (alive) { setMyRegistrations(data || []); setRegistrationsError(false) } })
+      .catch(() => { if (alive) { setMyRegistrations(null); setRegistrationsError(true) } })
     return () => { alive = false }
-  }, [user, participant?.id])
+  }, [user, participant?.id, participantLoading, participantError, registrationReload])
 
-  const profileComplete = hasProfile
+  const profileComplete = hasProfile && !profileError
   const thisRegistration = useMemo(
     () => myRegistrations?.find(r => r.event_id === eventId) || null,
     [myRegistrations, eventId]
@@ -74,23 +85,42 @@ export default function EventDetailPage() {
     && Boolean(thisRegistration?.check_in_time)
 
   useEffect(() => {
-    if (!thisRegistration || accountProfile?.role !== 'applicant') { setFormalApplications([]); return }
+    if (!thisRegistration || accountProfile?.role !== 'applicant') { setFormalApplications([]); setFormalApplicationsError(false); setFormalApplicationsLoading(false); return }
     let alive = true
+    setFormalApplicationsLoading(true)
     recruitmentService.listMyApplications()
-      .then(rows => { if (alive) setFormalApplications(rows || []) })
-      .catch(() => { if (alive) setFormalApplications([]) })
+      .then(rows => { if (alive) { setFormalApplications(rows || []); setFormalApplicationsError(false) } })
+      .catch(() => { if (alive) setFormalApplicationsError(true) })
+      .finally(() => { if (alive) setFormalApplicationsLoading(false) })
     return () => { alive = false }
   }, [thisRegistration, accountProfile?.role])
 
-  if (loading) return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading quest…</div>
+  if (loading) return <main className="relative grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-300" role="status" aria-live="polite"><div className="absolute right-4 top-4"><ThemeToggle /></div>Loading quest…</main>
+
+  if (loadError) {
+    return (
+      <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section role="alert" className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-7 text-center shadow-sm dark:border-red-900 dark:bg-slate-900">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Quest details could not be loaded</h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection, then try again. The event may still be available.</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <button type="button" onClick={() => setReloadKey(key => key + 1)} className="min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+            <Link to="/" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Quest Board</Link>
+          </div>
+        </section>
+      </main>
+    )
+  }
 
   if (notAvailable || !event) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 px-6">
-        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+      <main className="relative grid min-h-screen place-items-center bg-slate-50 px-6 dark:bg-slate-950">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
           <PixelStar className="mx-auto h-4 w-4 text-amber-400" />
-          <h1 className="mt-3 text-xl font-bold text-slate-900">Quest Not Available</h1>
-          <p className="mt-2 text-sm text-slate-500">This opportunity is no longer active or does not exist.</p>
+          <h1 className="mt-3 text-xl font-bold text-slate-900 dark:text-slate-100">Quest Not Available</h1>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">This opportunity is no longer active or does not exist.</p>
           <Link to="/" className="mt-6 inline-block rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
             Back to Quest Board
           </Link>
@@ -162,12 +192,12 @@ export default function EventDetailPage() {
     ? `${formatTime(event.time_from)} – ${formatTime(event.time_to)}`
     : null
 
-  const showApplyFlow = Boolean(user) && profileComplete && !thisRegistration && offers.length > 0
+  const showApplyFlow = Boolean(user) && profileComplete && !registrationsError && !thisRegistration && offers.length > 0
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-widest text-blue-700">
             <PixelArrow className="h-3 w-3 rotate-180" /> Quest Board
@@ -175,7 +205,7 @@ export default function EventDetailPage() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {!user && (
-              <Link to="/login" className="rounded-lg border border-slate-300 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              <Link to="/login" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
                 Sign In
               </Link>
             )}
@@ -185,13 +215,13 @@ export default function EventDetailPage() {
 
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         {/* Event header */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8">
+        <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-8">
           <span className={`inline-block rounded-full px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest ring-1 ${eventTypeBadgeClass(event.event_type)}`}>
             ◈ {eventTypeDisplay(event)}
           </span>
-          <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">{event.event_name}</h1>
+          <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">{event.event_name}</h1>
 
-          <dl className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+          <dl className="mt-4 grid gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
             <div className="flex items-center gap-2"><PixelCal className="h-3.5 w-3.5 text-blue-700" /><dd>{format(new Date(event.event_date), 'MMMM d, yyyy')}</dd></div>
             {timeLabel && <div className="flex items-center gap-2"><PixelClock className="h-3.5 w-3.5 text-blue-700" /><dd>{timeLabel}</dd></div>}
             <div className="flex items-center gap-2"><PixelPin className="h-3.5 w-3.5 text-blue-700" /><dd>{event.location}{event.venue ? ` · ${event.venue}` : ''}</dd></div>
@@ -201,7 +231,7 @@ export default function EventDetailPage() {
           </dl>
 
           {event.description && (
-            <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-600">{event.description}</p>
+            <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">{event.description}</p>
           )}
 
           {/* State-aware CTA */}
@@ -218,11 +248,13 @@ export default function EventDetailPage() {
               </>
             )}
 
+            {user && profileError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"><p>Your saved profile couldn’t be checked. Reload before continuing so existing information stays safe.</p><button type="button" onClick={() => window.location.reload()} className="mt-2 min-h-10 font-semibold underline">Reload profile</button></div>}
+
             {user && myRegistrations === null && (
-              <p className="text-xs text-slate-400">Checking your profile…</p>
+              registrationsError ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"><p>We couldn’t check whether you’re already registered. Try again before registering.</p><button type="button" onClick={() => participantError ? window.location.reload() : setRegistrationReload((key) => key + 1)} className="mt-2 min-h-10 font-semibold underline">Try again</button></div> : <p role="status" className="text-xs text-slate-400">Checking your registration…</p>
             )}
 
-            {user && myRegistrations !== null && !profileComplete && (
+            {user && myRegistrations !== null && !profileError && !profileComplete && (
               <>
                 <button
                   onClick={handleCompleteProfile}
@@ -235,7 +267,7 @@ export default function EventDetailPage() {
             )}
 
             {user && profileComplete && thisRegistration && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
                 <p className="flex items-center gap-2 text-sm font-bold text-emerald-800">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs text-white">✓</span>
                   You're Registered
@@ -244,10 +276,10 @@ export default function EventDetailPage() {
                   <Link to="/pass" className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-800">
                     View My Participant Pass
                   </Link>
-                  <Link to={`/participation/${thisRegistration.id}`} className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
+                  <Link to={`/participation/${thisRegistration.id}`} className="inline-flex min-h-11 items-center rounded-lg border border-emerald-300 bg-white px-4 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200">
                     My Registration
                   </Link>
-                  <Link to="/" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  <Link to="/" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
                     Browse More Quests
                   </Link>
                 </div>
@@ -259,7 +291,7 @@ export default function EventDetailPage() {
 
         {/* Opportunity-aware apply */}
         {showApplyFlow && (
-          <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8">
+          <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-8">
             <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700">◈ Apply</p>
             <h2 className="mt-1 text-lg font-bold text-slate-900">Choose your opportunities</h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -273,7 +305,7 @@ export default function EventDetailPage() {
                 return (
                   <li key={o.id}>
                     <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${
-                      checked ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-blue-300'
+                      checked ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-200 dark:bg-blue-950' : 'border-slate-200 hover:border-blue-300 dark:border-slate-700'
                     }`}>
                       <input
                         type="checkbox"
@@ -282,8 +314,8 @@ export default function EventDetailPage() {
                         className="mt-0.5 h-5 w-5 shrink-0 accent-blue-700"
                       />
                       <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-slate-900">{d.position}</span>
-                        <span className="block truncate text-xs text-slate-500">{d.company_name}</span>
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{d.position}</span>
+                        <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{d.company_name}</span>
                       </span>
                     </label>
                   </li>
@@ -308,11 +340,11 @@ export default function EventDetailPage() {
 
         {/* Participating employers */}
         {employers.length > 0 && (
-          <section className="mt-8">
+      <section className="mt-8">
             <h2 className="text-lg font-bold text-slate-900">Participating Employers</h2>
             <div className="mt-3 flex flex-wrap gap-2">
               {employers.sort().map(name => (
-                <span key={name} className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-200">
+                <span key={name} className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                   {name}
                 </span>
               ))}
@@ -324,7 +356,7 @@ export default function EventDetailPage() {
         <section className="mt-8 pb-12">
           <h2 className="text-lg font-bold text-slate-900">Available Positions</h2>
           {offers.length === 0 ? (
-            <div className="mt-3 rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-slate-200">
+            <div className="mt-3 rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
               <PixelStar className="mx-auto h-4 w-4 text-amber-400" />
               <p className="mt-3 text-sm font-semibold text-slate-900">Positions Not Posted Yet</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
@@ -340,10 +372,10 @@ export default function EventDetailPage() {
                 const d = o.vacancy_definitions
                 const formalApplication = formalApplications.find(application => application.event_vacancy_id === o.id && ['applied', 'shortlisted'].includes(application.application_status))
                 return (
-                  <li key={o.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                  <li key={o.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
                     <p className="font-semibold text-slate-900">{d.position}</p>
                     <p className="mt-0.5 text-xs font-medium text-blue-700">{d.company_name}</p>
-                    <dl className="mt-3 space-y-1 text-xs text-slate-500">
+                    <dl className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                       {d.place_of_assignment && (
                         <div className="flex items-center gap-1.5"><PixelPin className="h-2.5 w-2.5 text-slate-400" /><span>{d.place_of_assignment}</span></div>
                       )}
@@ -353,15 +385,19 @@ export default function EventDetailPage() {
                       {o.slots_offered > 0 && <p><strong className="text-slate-700">{o.slots_offered}</strong> opening{o.slots_offered === 1 ? '' : 's'}</p>}
                     </dl>
                     {d.qualifications && (
-                      <details className="mt-3 border-t border-slate-100 pt-3">
-                        <summary className="cursor-pointer min-h-[44px] flex items-center text-xs font-semibold text-slate-600 hover:text-blue-700">View requirements</summary>
-                        <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-slate-600">{d.qualifications}</p>
+                      <details className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-700">
+                        <summary className="flex min-h-[44px] cursor-pointer items-center text-xs font-semibold text-slate-600 hover:text-blue-700 dark:text-slate-300">View requirements</summary>
+                        <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-slate-600 dark:text-slate-300">{d.qualifications}</p>
                       </details>
                     )}
                     {thisRegistration && accountProfile?.role === 'applicant' && (
-                      <div className="mt-4 border-t border-slate-200 pt-4">
+                      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
                         {formalApplication ? (
                           <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">Formal application: {formalApplication.application_status}</p>
+                        ) : formalApplicationsError ? (
+                          <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">Formal application status is unavailable. Reload this page before applying.</p>
+                        ) : formalApplicationsLoading ? (
+                          <p role="status" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">Checking formal application status…</p>
                         ) : hasValidCheckIn ? (
                           <button type="button" onClick={() => handleFormalApply(o)} disabled={Boolean(formalApplyingId)} className="min-h-11 w-full rounded-lg border-2 border-slate-900 bg-amber-400 px-4 text-xs font-black text-slate-900 shadow-[2px_3px_7px_rgb(15_23_42/0.2)] disabled:opacity-50">
                             {formalApplyingId === o.id ? 'Applying...' : 'Apply formally'}
@@ -384,9 +420,9 @@ export default function EventDetailPage() {
       {showApplyFlow && (
         <>
           <div aria-hidden className="h-20 sm:hidden" />
-          <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-slate-900 bg-white/95 shadow-[0_-4px_0_0_rgb(251_191_36/0.9)] backdrop-blur sm:hidden">
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-slate-900 bg-white/95 shadow-[0_-4px_0_0_rgb(251_191_36/0.9)] backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:hidden">
             <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
-              <p aria-live="polite" className="min-w-0 flex-1 text-xs font-semibold leading-snug text-slate-600">
+              <p aria-live="polite" className="min-w-0 flex-1 text-xs font-semibold leading-snug text-slate-600 dark:text-slate-300">
                 <PixelStar className="mr-1 inline h-2.5 w-2.5 text-amber-500" />
                 {selectedOffers.length > 0
                   ? `${selectedOffers.length} position${selectedOffers.length === 1 ? '' : 's'} selected`

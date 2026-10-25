@@ -64,8 +64,9 @@ function ensureArray(data) {
 }
 
 export default function WalkinPage() {
-  const { events } = useStaffEventsAnyStatus()
+  const { events, loading: eventsLoading, error: eventsError, retry: retryEvents } = useStaffEventsAnyStatus()
   const [vacancies, setVacancies] = useState([])
+  const [vacanciesError, setVacanciesError] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [createdRegistrant, setCreatedRegistrant] = useState(null)
 
@@ -162,8 +163,8 @@ export default function WalkinPage() {
     if (!form.event_id) { setVacancies([]); return }
     let alive = true
     eventVacancyService.listActiveForEvent(form.event_id)
-      .then((rows) => { if (alive) setVacancies(rows || []) })
-      .catch(() => { if (alive) setVacancies([]) })
+      .then((rows) => { if (alive) { setVacancies(rows || []); setVacanciesError(false) } })
+      .catch(() => { if (alive) setVacanciesError(true) })
     return () => { alive = false }
   }, [form.event_id])
 
@@ -220,6 +221,10 @@ export default function WalkinPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+
+    if (eventsLoading) { toast.error('Wait for the event list to finish loading.'); return }
+    if (eventsError) { toast.error('Reload the event list before registering a walk-in.'); return }
+    if (!form.event_id) { toast.error('Select an event before registering a walk-in.'); return }
 
     if (!form.first_name.trim() || !form.last_name.trim()) {
       toast.error('First name and last name are required.'); return
@@ -334,6 +339,10 @@ export default function WalkinPage() {
         <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">Walk-in Registration</h1>
         <p className="mt-1 text-sm text-slate-600">Register and instantly check in on-site walk-in applicants.</p>
       </div>
+
+      {eventsError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>Event choices couldn’t be loaded. Walk-in registration needs a valid event.</p><button type="button" onClick={retryEvents} className="mt-2 min-h-10 font-semibold underline">Reload events</button></div>}
+      {!eventsLoading && !eventsError && events.length === 0 && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-semibold">No events are available for walk-in registration.</p><p className="mt-1">Ask an event administrator to create or open an event, then reload this page.</p><button type="button" onClick={retryEvents} className="mt-2 min-h-10 font-semibold underline">Reload events</button></div>}
+      {eventsLoading && <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">Loading event choices…</p>}
 
       <form onSubmit={handleSubmit} className={`space-y-7 p-5 sm:p-8 ${PANEL}`}>
         {/* Event Selection */}
@@ -524,7 +533,9 @@ export default function WalkinPage() {
 
         {/* Preferred vacancies */}
         <Section title="Preferred job vacancies (optional)">
-          {!safeVacancies.length ? (
+          {vacanciesError ? (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">Vacancies for this event couldn’t be loaded. Continue without selecting vacancies or change the event and try again.</div>
+          ) : !safeVacancies.length ? (
             <p className="text-sm text-slate-500">No active vacancies have been posted for this event.</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -546,7 +557,7 @@ export default function WalkinPage() {
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || eventsLoading || eventsError || events.length === 0 || !form.event_id}
           className={`${BTN} w-full bg-amber-400 py-3.5 text-slate-900 text-base disabled:opacity-60`}
         >
           {submitting ? 'Registering & Checking in...' : 'Register Walk-in & Check-In Now'}

@@ -2,7 +2,8 @@
 // Validates AI structured output against a strict schema.
 // NO database calls, NO provider calls. Pure validation logic.
 
-export const EXTRACTION_VERSION = 'ai-extraction-v1'
+import { EXTRACTION_VERSION, validateExtractionResponse } from '../../supabase/functions/_shared/extraction-contract.js'
+export { EXTRACTION_VERSION, validateExtractionResponse }
 
 export const PROVENANCE = Object.freeze({
   EXPLICIT: 'explicit',
@@ -75,95 +76,6 @@ export function shouldWriteToPreference(sourceTextFragment, provenance) {
   // Unknown intent: only write if explicitly stated (high confidence)
   if (provenance === 'explicit' && intent === SOURCE_INTENT.UNKNOWN) return false
   return false
-}
-
-/**
- * Validates a single extraction suggestion item.
- * Returns { valid: boolean, errors: string[], sanitized: Object }.
- *
- * @param {Object} item - Raw suggestion from AI
- * @param {Object} schema - Expected shape { raw_term: 'string', ... }
- * @returns {Object} Validation result
- */
-function validateSuggestionItem(item, _schema = {}) {
-  const errors = []
-
-  if (!item || typeof item !== 'object') {
-    return { valid: false, errors: ['Suggestion must be an object'], sanitized: null }
-  }
-
-  if (!item.raw_term || typeof item.raw_term !== 'string' || !item.raw_term.trim()) {
-    errors.push('raw_term is required and must be a non-empty string')
-  }
-
-  if (item.confidence !== undefined) {
-    const c = Number(item.confidence)
-    if (Number.isNaN(c) || c < 0 || c > 1) {
-      errors.push('confidence must be a number between 0 and 1')
-    }
-  }
-
-  if (item.provenance && !Object.values(PROVENANCE).includes(item.provenance)) {
-    errors.push(`provenance must be one of: ${Object.values(PROVENANCE).join(', ')}`)
-  }
-
-  // Sanitize: trim raw_term, coerce confidence to number
-  const sanitized = {
-    ...item,
-    raw_term: String(item.raw_term || '').trim(),
-    confidence: item.confidence !== undefined ? Math.max(0, Math.min(1, Number(item.confidence))) : undefined,
-    provenance: item.provenance || PROVENANCE.EXPLICIT,
-  }
-
-  return { valid: errors.length === 0, errors, sanitized }
-}
-
-/**
- * Validates a full AI extraction response.
- * Returns { valid: boolean, errors: string[], sanitized: Object }.
- *
- * @param {Object} response - Raw AI extraction output
- * @returns {Object} Validation result
- */
-export function validateExtractionResponse(response) {
-  const errors = []
-
-  if (!response || typeof response !== 'object') {
-    return { valid: false, errors: ['Response must be an object'], sanitized: null }
-  }
-
-  if (response.extraction_version !== EXTRACTION_VERSION) {
-    errors.push(`extraction_version must be "${EXTRACTION_VERSION}", got "${response.extraction_version}"`)
-  }
-
-  // Validate each suggestion category
-  const categories = ['occupations', 'skills', 'certifications', 'education_requirements', 'experience_requirements', 'industries']
-  const sanitized = { ...response }
-
-  for (const cat of categories) {
-    if (response[cat] !== undefined) {
-      if (!Array.isArray(response[cat])) {
-        errors.push(`${cat} must be an array`)
-        continue
-      }
-      const sanitizedItems = []
-      for (let i = 0; i < response[cat].length; i++) {
-        const result = validateSuggestionItem(response[cat][i])
-        if (!result.valid) {
-          errors.push(`${cat}[${i}]: ${result.errors.join('; ')}`)
-        } else {
-          sanitizedItems.push(result.sanitized)
-        }
-      }
-      sanitized[cat] = sanitizedItems
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    sanitized: sanitized,
-  }
 }
 
 /**

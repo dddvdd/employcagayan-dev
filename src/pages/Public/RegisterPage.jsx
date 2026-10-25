@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
@@ -8,11 +8,23 @@ import { participantService } from '../../services/participantService'
 import { eventService } from '../../services/eventService'
 import { eventVacancyService } from '../../services/eventVacancyService'
 import { supabase } from '../../lib/supabase'
+import usePhAddress from '../../lib/usePhAddress'
 import { INTRO_KEY } from '../../components/public/JobSeekerIntro'
 import { eventTypeDisplay } from '../../domain/eventTypes'
+import {
+  BIRTHDATE_INPUT_AUTOCOMPLETE,
+  BIRTHDATE_INPUT_PLACEHOLDER,
+  BIRTHDATE_UI_FORMAT,
+  ageFromParts,
+  birthdateToIso,
+  isoToBirthdate,
+  maskBirthdateInput,
+  parseBirthdateParts,
+} from '../../domain/birthdate'
 import { readQuestReturn, clearQuestReturn } from '../../lib/questReturn'
 import { PixelStar, PixelBriefcase, PixelArrow } from '../../components/public/pixel'
 import ThemeToggle from '../../components/ThemeToggle'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
 
 // Lightweight discovery answers saved by the public Quest Board intro.
 const PREFERENCE_MAP = { local: 'Local', overseas: 'Overseas', exploring: 'Both' }
@@ -45,8 +57,9 @@ const SPECIAL_SECTOR_OPTIONS = [
 ]
 
 const STUDENT_EDUCATION_LEVELS = [
-  'Junior High School Level', 'Senior High School Level', 'TVET Course',
-  'College Level',
+  'Junior High School', 'Senior High School', 'Technical-Vocational',
+  'College / Undergraduate', 'Post-Graduate Diploma', "Master's Degree",
+  'Doctorate / PhD', 'Graduate Studies', 'Other',
 ]
 
 const educationalAttainmentOptions = [
@@ -64,7 +77,8 @@ const educationalAttainmentOptions = [
   'College Level',
   "Bachelor's Degree Graduate",
   "Master's Degree Candidate/ Graduate",
-  "Doctor's Degree/ PhD Candidate/ Graduate"
+  "Doctor's Degree/ PhD Candidate/ Graduate",
+  'Other / Not listed',
 ]
 
 const shsStrands = [
@@ -223,13 +237,23 @@ function skillsForOccupation(occupation) {
   return key ? SKILLS_BY_OCCUPATION[key] : []
 }
 
+// Birthday is entered and displayed as MM/DD/YYYY and converted to the
+// database's YYYY-MM-DD only at the persistence boundary. Validating the real
+// calendar date here means 02/30/1998, 13/01/1998 and 00/12/1998 are rejected
+// instead of being coerced into a different day.
+const birthdateSchema = z
+  .string()
+  .trim()
+  .min(1, 'Birthdate is required')
+  .refine((val) => parseBirthdateParts(val) !== null, `Use ${BIRTHDATE_UI_FORMAT} — for example 09/24/1998`)
+
 // event_id is only required when registering for a specific Quest.
 function buildSchema(isQuestMode, maxYearsByAge = 99) {
   return z.object({
     first_name: z.string().trim().min(1, 'First name is required'),
     middle_name: z.string(),
     last_name: z.string().trim().min(1, 'Last name is required'),
-    birthdate: z.string().min(1, 'Birthdate is required'),
+    birthdate: birthdateSchema,
     sex: z.string().min(1, 'Please select an option'),
     civil_status: z.string(),
     barangay: z.string().trim().min(1, 'Barangay is required'),
@@ -319,7 +343,7 @@ function buildSchema(isQuestMode, maxYearsByAge = 99) {
   })
 }
 
-const input = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100'
+const input = 'mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950'
 
 function ensureArray(data) {
   if (Array.isArray(data)) return data
@@ -334,11 +358,10 @@ export default function RegisterPage() {
   const [events, setEvents] = useState([])
   const [vacancies, setVacancies] = useState([])
   const [selectedVacancies, setSelectedVacancies] = useState([])
-  const [provinces, setProvinces] = useState([])
-  const [municipalities, setMunicipalities] = useState([])
-  const [barangays, setBarangays] = useState([])
   const [loading, setLoading] = useState(true)
   const [profileRow, setProfileRow] = useState(undefined) // undefined = loading, null = none yet
+  const [profilePrefillError, setProfilePrefillError] = useState(false)
+  const [profilePrefillRetry, setProfilePrefillRetry] = useState(0)
   const [step, setStep] = useState('edit') // edit -> review -> saved
   const [reviewData, setReviewData] = useState(null)
 
@@ -409,16 +432,41 @@ export default function RegisterPage() {
       event_id: searchEvent,
     },
   })
-  const { register, handleSubmit, watch, setError, setValue, reset, formState: { errors, isSubmitting, dirtyFields } } = form
+  const { register, handleSubmit, watch, setError, clearErrors, setValue, reset, formState: { errors, isSubmitting, dirtyFields } } = form
 
   // Subscribe to dirty fields so delayed profile hydration preserves edits.
   void dirtyFields
+
+  // Province → LGU → Barangay cascade. The hook owns the option lists, load
+  // state and the guarantee that a stale child is never left selectable;
+  // `onInvalidate` is how it tells this form to drop values that a parent
+  // change just made impossible.
+  const clearAddressFields = useCallback((fields) => {
+    fields.forEach((field) => setValue(field, '', { shouldDirty: true, shouldValidate: true }))
+    fields.forEach((field) => clearErrors(field))
+  }, [setValue, clearErrors])
+
+  const {
+    provinces: safeProvinces,
+    municipalities: safeMunicipalities,
+    barangays: safeBarangays,
+    provincesState,
+    municipalitiesState,
+    barangaysState,
+    selectProvince,
+    selectMunicipality,
+    hydrateProvince,
+    hydrateMunicipality,
+    validateAddress,
+  } = usePhAddress({ onInvalidate: clearAddressFields })
 
   // Autofill from the Google account, then overlay anything already saved
   // in the participant's reusable profile (never an event registration).
   useEffect(() => {
     if (!user) return
     let cancelled = false
+    setProfilePrefillError(false)
+    setProfileRow(undefined)
     const meta = user.user_metadata ?? {}
     const google = {
       first_name: meta.given_name ?? '',
@@ -426,15 +474,17 @@ export default function RegisterPage() {
       email: user.email ?? '',
     }
     ;(async () => {
-      const pData = await participantService.getOrCreateParticipant().catch(() => null)
-      const row = pData ? await participantService.fetchJobseekerProfile(pData.id).catch(() => null) : null
+      try {
+      const pData = await participantService.getOrCreateParticipant()
+      const row = await participantService.fetchJobseekerProfile(pData.id)
       // Load special sectors for this participant
       let savedSectors = []
       if (pData) {
-        const { data: sectorRows } = await supabase
+        const { data: sectorRows, error: sectorError } = await supabase
           .from('jobseeker_special_sectors')
           .select('special_worker_sectors(code)')
           .eq('participant_id', pData.id)
+        if (sectorError) throw sectorError
         savedSectors = (sectorRows || []).map(r => r.special_worker_sectors?.code).filter(Boolean)
         if (row?.has_disability && !savedSectors.includes('pwd')) savedSectors.push('pwd')
       }
@@ -446,7 +496,7 @@ export default function RegisterPage() {
           first_name: row.first_name || google.first_name,
           middle_name: row.middle_name || '',
           last_name: row.last_name || google.last_name,
-          birthdate: row.birthdate || '',
+          birthdate: isoToBirthdate(row.birthdate),
           sex: row.sex || '',
           civil_status: row.civil_status || '',
           barangay: row.barangay || '',
@@ -501,25 +551,32 @@ export default function RegisterPage() {
           current_grade_year_level: row.current_grade_year_level || '',
           current_program_or_strand: row.current_program_or_strand || '',
           expected_graduation_year: row.expected_graduation_year != null ? String(row.expected_graduation_year) : '',
-          data_subject_rights_agreed: true,
+          data_subject_rights_agreed: row.data_subject_rights_agreed === true,
           event_id: searchEvent,
         }, { keepDirtyValues: true })
-      } else if (google.first_name || google.last_name) {
+      } else {
+        // These are editable hints only; the saved profile always wins.
+        seedEmptyField('email', google.email)
         seedEmptyField('first_name', google.first_name)
         seedEmptyField('last_name', google.last_name)
-        seedEmptyField('email', google.email)
-        // Fall back to parsing the display name when split names are missing.
-        if (!google.first_name && !google.last_name && meta.name) {
-          const parts = meta.name.trim().split(/\s+/)
-          seedEmptyField('first_name', parts[0] ?? '')
-          seedEmptyField('last_name', parts[parts.length - 1] ?? '')
+        // Google can supply only one display name, without given/family names.
+        const displayName = typeof meta.name === 'string' ? meta.name.trim() : ''
+        if (!google.first_name && !google.last_name && displayName) {
+          const parts = displayName.split(/\s+/)
+          seedEmptyField('first_name', parts[0])
+          if (parts.length > 1) seedEmptyField('last_name', parts.at(-1))
           if (parts.length > 2) seedEmptyField('middle_name', parts.slice(1, -1).join(' '))
         }
+      }
+      } catch (error) {
+        if (cancelled) return
+        console.error('Unable to load the saved jobseeker profile for prefill:', error)
+        setProfilePrefillError(true)
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => { cancelled = true }
-  }, [user?.id])
+  }, [user?.id, profilePrefillRetry])
 
   // If the applicant already has a reusable profile AND came from a Quest,
   // skip setup entirely — they apply directly from the Quest page.
@@ -567,7 +624,13 @@ export default function RegisterPage() {
 
 
   const isReturning = returningOfw || returningWorker
-  const age = (() => { if (!birthdate) return null; const d = new Date(birthdate); if (isNaN(d)) return null; const now = new Date(); return now.getFullYear() - d.getFullYear() - (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0) })()
+  // Calendar-accurate age from the validated MM/DD/YYYY parts. Previously this
+  // did `new Date('MM/DD/YYYY')`, which is Invalid Date in most engines and
+  // silently disabled the age-gated field limits.
+  const age = useMemo(() => {
+    const parts = parseBirthdateParts(birthdate)
+    return parts ? ageFromParts(parts.year, parts.month, parts.day) : null
+  }, [birthdate])
   const maxYearsByAge = age != null ? Math.max(0, Math.min(99, age - 10)) : 99
 
   const cleanContact = contactNo.replace(/\D/g, '')
@@ -622,93 +685,41 @@ export default function RegisterPage() {
     return () => { alive = false }
   }, [])
 
-  useEffect(() => {
-    async function loadProvinces() {
-      const urls = [
-        'https://psgc.cloud/api/v2/provinces',
-        'https://psgc.gitlab.io/philippine-addresses/api/provinces.json'
-      ]
-      for (const url of urls) {
-        try {
-          const res = await fetch(url)
-          if (res.ok) {
-            const json = await res.json()
-            const list = ensureArray(json)
-            if (list.length > 0) { setProvinces(list); return }
-          }
-        } catch (err) {
-          console.warn(`Failed fetching provinces from ${url}:`, err)
-        }
-      }
-      setProvinces([])
-      toast.error('Could not load the province list. Please refresh and try again.')
+  // Address cascade wiring.
+  //
+  // The cascade is event-driven, not effect-driven: selecting a parent calls the
+  // hook, which empties both child lists *before* awaiting the new fetch and
+  // clears the now-invalid child values through onInvalidate. An effect that
+  // merely watched `province` used to leave the previous city selected and even
+  // re-admitted it as a stale <option>, letting Province=Isabela +
+  // Municipality=Tuguegarao City be saved.
+  const handleProvinceChange = useCallback((next) => {
+    if (!next) {
+      clearErrors(['province', 'municipality_city', 'barangay'])
+    } else {
+      clearErrors('province')
     }
-    void loadProvinces()
-  }, [])
+    void selectProvince(next)
+  }, [selectProvince, clearErrors])
 
+  const handleMunicipalityChange = useCallback((next) => {
+    clearErrors('municipality_city')
+    void selectMunicipality(next)
+  }, [selectMunicipality, clearErrors])
+
+  // Re-select the saved province/LGU after the options load, without clearing
+  // the saved barangay, so a returning jobseeker keeps their address selected.
+  const hydratedAddress = useRef({ province: null, municipality: null })
   useEffect(() => {
-    setMunicipalities([])
-    setBarangays([])
-
-    const provincesList = ensureArray(provinces)
-    const selectedProvince = provincesList.find((item) => item?.name === province)
-    if (!selectedProvince?.code) return
-
-    async function loadMunicipalities() {
-      const code = encodeURIComponent(selectedProvince.code)
-      const urls = [
-        `https://psgc.cloud/api/v2/provinces/${code}/cities-municipalities`,
-        `https://psgc.gitlab.io/philippine-addresses/api/provinces/${code}/cities-municipalities.json`
-      ]
-      for (const url of urls) {
-        try {
-          const res = await fetch(url)
-          if (res.ok) {
-            const json = await res.json()
-            const list = ensureArray(json)
-            if (list.length > 0) { setMunicipalities(list); return }
-          }
-        } catch (err) {
-          console.warn(`Failed fetching municipalities from ${url}:`, err)
-        }
+    if (!province || provincesState !== 'ready') return
+    if (hydratedAddress.current.province === province) return
+    hydratedAddress.current.province = province
+    void hydrateProvince(province).then((list) => {
+      if (municipality && list.some((item) => item?.name === municipality)) {
+        void hydrateMunicipality(municipality, list)
       }
-      setMunicipalities([])
-      toast.error('Could not load cities and municipalities. Please try again.')
-    }
-    void loadMunicipalities()
-  }, [province, provinces, setValue])
-
-  useEffect(() => {
-    setBarangays([])
-
-    const municipalitiesList = ensureArray(municipalities)
-    const selectedMunicipality = municipalitiesList.find((item) => item?.name === municipality)
-    if (!selectedMunicipality?.code) return
-
-    async function loadBarangays() {
-      const code = encodeURIComponent(selectedMunicipality.code)
-      const urls = [
-        `https://psgc.cloud/api/v2/cities-municipalities/${code}/barangays`,
-        `https://psgc.gitlab.io/philippine-addresses/api/cities-municipalities/${code}/barangays.json`
-      ]
-      for (const url of urls) {
-        try {
-          const res = await fetch(url)
-          if (res.ok) {
-            const json = await res.json()
-            const list = ensureArray(json)
-            if (list.length > 0) { setBarangays(list); return }
-          }
-        } catch (err) {
-          console.warn(`Failed fetching barangays from ${url}:`, err)
-        }
-      }
-      setBarangays([])
-      toast.error('Could not load barangays. Please try again.')
-    }
-    void loadBarangays()
-  }, [municipality, municipalities, setValue])
-
+    })
+  }, [province, provincesState, municipality, hydrateProvince, hydrateMunicipality])
 
   useEffect(() => {
     setSelectedVacancies([])
@@ -721,9 +732,6 @@ export default function RegisterPage() {
   }, [eventId])
 
   const safeEvents = useMemo(() => ensureArray(events), [events])
-  const safeProvinces = useMemo(() => ensureArray(provinces), [provinces])
-  const safeMunicipalities = useMemo(() => ensureArray(municipalities), [municipalities])
-  const safeBarangays = useMemo(() => ensureArray(barangays), [barangays])
   const safeVacancies = useMemo(() => ensureArray(vacancies), [vacancies])
 
   const chosenEvent = useMemo(() => safeEvents.find((event) => event?.id === eventId), [safeEvents, eventId])
@@ -751,8 +759,21 @@ export default function RegisterPage() {
   // ---------- STEP 1: validate + move to review ----------
   function goReview(values) {
     const checked = buildSchema(isQuestMode, maxYearsByAge).safeParse(values)
-    if (!checked.success) {
-      checked.error.issues.forEach((issue) => setError(issue.path[0], { message: issue.message }))
+
+    // Final gate on the saved address: the cascade prevents an invalid
+    // combination from being *offered*, and this refuses to persist one. It
+    // runs even when other fields failed, so a bad address is always reported.
+    const address = validateAddress(values, {
+      provincesState,
+      municipalitiesState,
+      barangaysState,
+    })
+
+    if (!checked.success || !address.ok) {
+      if (!checked.success) {
+        checked.error.issues.forEach((issue) => setError(issue.path[0], { message: issue.message }))
+      }
+      Object.entries(address.errors).forEach(([field, message]) => setError(field, { message }))
       toast.error('Please complete the highlighted fields.')
       // Long form — bring the first problem field into view instead of
       // making jobseekers hunt for it.
@@ -777,7 +798,7 @@ export default function RegisterPage() {
         first_name: v.first_name,
         middle_name: v.middle_name || null,
         last_name: v.last_name,
-        birthdate: v.birthdate || null,
+        birthdate: birthdateToIso(v.birthdate),
         sex: v.sex || null,
         civil_status: v.civil_status || null,
         barangay: v.barangay || null,
@@ -823,7 +844,7 @@ export default function RegisterPage() {
         highest_educational_attainment: v.highest_educational_attainment || null,
         course_program: v.course_program || null,
         interview_location: v.interview_location || null,
-        data_subject_rights_agreed: true,
+        data_subject_rights_agreed: v.data_subject_rights_agreed,
         special_sectors: v.special_sectors ?? [],
         is_currently_student: v.is_currently_student,
         current_school_name: v.current_school_name || null,
@@ -838,6 +859,8 @@ export default function RegisterPage() {
       }
       await participantService.saveJobseekerProfile(profilePayload)
 
+      // DEV synchronizes onboarding education inside this profile transaction.
+      // A trigger failure rolls back the save; there is no second client RPC.
       toast.success(profileRow ? 'Your Job Seeker Profile has been updated!' : 'Your Job Seeker Profile has been created!')
       try { localStorage.removeItem(INTRO_KEY) } catch { /* ignore */ }
 
@@ -867,22 +890,34 @@ export default function RegisterPage() {
   // check-in state lives on event_participations and does not affect this form.
   const profileLocked = false
 
-  if (loading || profileRow === undefined) return <main className="grid min-h-screen place-items-center text-slate-600">Loading your profile…</main>
+  if (profilePrefillError) return (
+    <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+      <div className="absolute right-4 top-4"><ThemeToggle /></div>
+      <section role="alert" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">We couldn’t check your saved profile</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Retry before continuing so saved information isn’t mistaken for a new profile.</p>
+        <button type="button" onClick={() => { setProfilePrefillError(false); setProfileRow(undefined); setProfilePrefillRetry((key) => key + 1) }} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+      </section>
+    </main>
+  )
+
+  if (loading || profileRow === undefined) return <PageLoadingState>Loading your profile…</PageLoadingState>
 
   // ---------- STEP 3: saved confirmation ----------
   if (step === 'saved') {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
-        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+      <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl font-bold text-emerald-600">✓</span>
-          <h1 className="mt-4 text-2xl font-bold text-slate-900">Profile Saved!</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-slate-100">Profile Saved!</h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             Your Job Seeker Profile is ready. It will be reused every time you join a Quest — no need to fill this out again.
           </p>
           <button onClick={() => navigate('/')} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-6 py-3 text-sm font-bold text-white hover:bg-blue-800">
             Explore the Quest Board <PixelArrow className="h-2.5 w-2.5" />
           </button>
-          <Link to="/pass" className="mt-3 block w-full rounded-xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <Link to="/pass" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
             View My Participant Pass
           </Link>
         </section>
@@ -900,12 +935,13 @@ export default function RegisterPage() {
       </div>
     )
     return (
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+      <main className="relative mx-auto max-w-3xl px-4 py-8 text-slate-900 dark:text-slate-100 sm:px-6">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
         <p className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700"><PixelBriefcase className="h-3.5 w-3.5" /> Step 2 of 2 · Review</p>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">Is this information correct?</h1>
-        <p className="mt-2 max-w-xl text-sm text-slate-600">Please review your details carefully. Your profile is reused for every Quest you join.</p>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Is this information correct?</h1>
+        <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">Please review your details carefully. Your profile is reused for every Quest you join.</p>
 
-        <dl className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <dl className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-blue-700">Personal</p>
           <Row label="Full name" value={`${d.first_name} ${d.middle_name} ${d.last_name}`.replace(/\s+/g, ' ').trim()} />
           <Row label="Birthdate" value={d.birthdate} />
@@ -933,7 +969,7 @@ export default function RegisterPage() {
         </dl>
 
         {/* Data Privacy Act of 2012 (RA 10173) notice */}
-        <div className="mt-6 rounded-2xl bg-blue-50 p-5 ring-1 ring-blue-100">
+        <div className="mt-6 rounded-2xl bg-blue-50 p-5 ring-1 ring-blue-100 dark:bg-blue-950 dark:ring-blue-900">
           <p className="flex items-center gap-1.5 text-sm font-bold text-blue-900"><PixelStar className="h-3 w-3 text-amber-500" /> Data Privacy Notice — Republic Act No. 10173</p>
           <p className="mt-2 text-xs leading-relaxed text-blue-800">
             By confirming, you authorize the Provincial Public Employment Service Office (PPESO) to collect and process the personal
@@ -946,7 +982,7 @@ export default function RegisterPage() {
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <button onClick={() => setStep('edit')} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          <button onClick={() => setStep('edit')} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
             ← Edit My Details
           </button>
           <button onClick={confirmSave} disabled={submitting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-700 px-6 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50">
@@ -968,7 +1004,7 @@ export default function RegisterPage() {
       url.searchParams.delete('event')
       window.location.replace(url.pathname + url.search)
     }
-    return <main className="mx-auto grid min-h-screen max-w-xl place-items-center px-6 text-center"><section className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200"><h1 className="text-2xl font-bold">No Active Quests Right Now</h1><p className="mt-3 text-slate-600">New opportunities are added regularly.</p><div className="mt-6 flex flex-wrap justify-center gap-2">{questReturn?.returnTo && <button onClick={() => navigate(questReturn.returnTo)} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Back to your Quest</button>}<button onClick={exitQuestMode} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Continue with Profile Setup</button><button onClick={() => navigate('/')} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Quest Board</button><button onClick={() => signOut()} className="text-sm font-semibold text-slate-500 hover:text-slate-900">Sign out</button></div></section></main>
+    return <main className="relative mx-auto grid min-h-screen max-w-xl place-items-center bg-slate-50 px-6 text-center text-slate-900 dark:bg-slate-950 dark:text-slate-100"><div className="absolute right-4 top-4"><ThemeToggle /></div><section className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"><h1 className="text-2xl font-bold">No Active Quests Right Now</h1><p className="mt-3 text-slate-600 dark:text-slate-300">New opportunities are added regularly.</p><div className="mt-6 flex flex-wrap justify-center gap-2">{questReturn?.returnTo && <button onClick={() => navigate(questReturn.returnTo)} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Back to your Quest</button>}<button onClick={exitQuestMode} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Continue with Profile Setup</button><button onClick={() => navigate('/')} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Quest Board</button><button onClick={() => signOut()} className="min-h-11 px-3 text-sm font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">Sign out</button></div></section></main>
   }
 
   const chips = isQuestMode
@@ -985,8 +1021,8 @@ export default function RegisterPage() {
     <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
       <div>
         <p className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700"><PixelBriefcase className="h-3.5 w-3.5" /> Job Seeker Profile</p>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">{isQuestMode ? 'Register for this Quest' : 'Build Your Job Seeker Profile'}</h1>
-        <p className="mt-2 max-w-xl text-sm text-slate-600">Your profile helps you apply faster and keeps your information in one place.</p>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{isQuestMode ? 'Register for this Quest' : 'Build Your Job Seeker Profile'}</h1>
+        <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">Your profile helps you apply faster and keeps your information in one place.</p>
         <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           {chips.map(s => <span key={s} className="rounded-full bg-white px-2 py-0.5 ring-1 ring-slate-200">{s}</span>)}
         </div>
@@ -1002,10 +1038,10 @@ export default function RegisterPage() {
       </p>
     )}
 
-    <form onSubmit={handleSubmit(goReview)} className="space-y-7 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8" readOnly={profileLocked}>
+    <form onSubmit={handleSubmit(goReview)} className="space-y-7 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-8" readOnly={profileLocked}>
     {isQuestMode && <Section title="Quest"><label className="block text-sm font-medium">Choose an event<select {...register('event_id')} disabled={profileLocked} className={input}><option value="">Select an event</option>{safeEvents.map((event) => <option key={event.id} value={event.id}>{event.event_name} — {event.event_date} ({event.location}) — {eventTypeDisplay(event)}</option>)}</select></label><Error error={errors.event_id}/>{chosenEvent && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Venue: {chosenEvent.location}</p>}</Section>}
-    <Section title="Personal information"><div className="grid gap-4 sm:grid-cols-3"><Field label="First name" required error={errors.first_name}><input {...register('first_name')} disabled={profileLocked} className={input}/></Field><Field label="Middle name"><input {...register('middle_name')} disabled={profileLocked} className={input}/></Field><Field label="Last name" required error={errors.last_name}><input {...register('last_name')} disabled={profileLocked} className={input}/></Field><Field label="Birthdate" required error={errors.birthdate}><input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} {...register('birthdate')} disabled={profileLocked} className={input}/></Field><Field label="Sex" required error={errors.sex}><select {...register('sex')} disabled={profileLocked} className={input}><option value="">Select</option><option>Male</option><option>Female</option></select></Field><Field label="Civil status"><select {...register('civil_status')} disabled={profileLocked} className={input}><option value="">Select</option><option>Single</option><option>Married</option><option>Widowed</option></select></Field></div></Section>
-    <Section title="Address and contact"><div className="grid gap-4 sm:grid-cols-2"><Field label="Province" required error={errors.province}><select {...register('province')} value={province || ''} disabled={profileLocked} className={input}><option value="">Select a province</option>{province && !safeProvinces.some(item => item.name === province) && <option value={province}>{province}</option>}{safeProvinces.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Municipality / city" required error={errors.municipality_city}><select {...register('municipality_city')} value={municipality || ''} disabled={!province || profileLocked} className={input}><option value="">{province ? 'Select a municipality / city' : 'Select a province first'}</option>{municipality && !safeMunicipalities.some(item => item.name === municipality) && <option value={municipality}>{municipality}</option>}{safeMunicipalities.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Barangay" required error={errors.barangay}><select {...register('barangay')} value={barangay || ''} disabled={!municipality || profileLocked} className={input}><option value="">{municipality ? 'Select a barangay' : 'Select a municipality / city first'}</option>{barangay && !safeBarangays.some(item => item.name === barangay) && <option value={barangay}>{barangay}</option>}{safeBarangays.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Contact number" required error={errors.contact_no}><input inputMode="tel" maxLength={contactMaxLen} {...register('contact_no', { onChange: (e) => { let val = e.target.value.replace(/\D/g, ''); const limit = val.startsWith('9') && !val.startsWith('09') ? 10 : 11; if (val.length > limit) { val = val.slice(0, limit); } e.target.value = val; } })} disabled={profileLocked} className={input}/></Field><Field label="Email" required error={errors.email}><input type="email" {...register('email')} disabled={profileLocked} className={input}/></Field></div></Section>
+    <Section title="Personal information"><div className="grid gap-4 sm:grid-cols-3"><Field label="First name" required error={errors.first_name}><input {...register('first_name')} disabled={profileLocked} className={input}/></Field><Field label="Middle name"><input {...register('middle_name')} disabled={profileLocked} className={input}/></Field><Field label="Last name" required error={errors.last_name}><input {...register('last_name')} disabled={profileLocked} className={input}/></Field><Field label={`Birthdate (${BIRTHDATE_UI_FORMAT})`} required error={errors.birthdate}><input type="text" inputMode="numeric" placeholder={BIRTHDATE_INPUT_PLACEHOLDER} autoComplete={BIRTHDATE_INPUT_AUTOCOMPLETE} maxLength={10} {...register('birthdate', { onChange: (e) => { e.target.value = maskBirthdateInput(e.target.value) } })} disabled={profileLocked} aria-describedby="birthdate-hint" className={input}/><span id="birthdate-hint" className="mt-1 block text-xs text-slate-500">For example 09/24/1998. Stored securely as a date.</span></Field><Field label="Sex" required error={errors.sex}><select {...register('sex')} disabled={profileLocked} className={input}><option value="">Select</option><option>Male</option><option>Female</option></select></Field><Field label="Civil status"><select {...register('civil_status')} disabled={profileLocked} className={input}><option value="">Select</option><option>Single</option><option>Married</option><option>Widowed</option></select></Field></div></Section>
+    <Section title="Address and contact"><div className="grid gap-4 sm:grid-cols-2"><Field label="Province" required error={errors.province}><select {...register('province', { onChange: (e) => handleProvinceChange(e.target.value) })} value={province || ''} disabled={profileLocked} aria-busy={provincesState === 'loading'} className={input}>{provincesState === 'loading' && <option value="">Loading provinces…</option>}{provincesState === 'error' && <option value="">Province list unavailable — check your connection</option>}{provincesState === 'ready' && <option value="">Select a province</option>}{provincesState === 'ready' && !safeProvinces.some(item => item.name === province) && province && <option value={province}>{province} (not in current list)</option>}{safeProvinces.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Municipality / city" required error={errors.municipality_city}><select {...register('municipality_city', { onChange: (e) => handleMunicipalityChange(e.target.value) })} value={municipality || ''} disabled={!province || profileLocked} aria-busy={municipalitiesState === 'loading'} className={input}>{municipalitiesState === 'loading' && <option value="">Loading cities and municipalities…</option>}{municipalitiesState === 'error' && <option value="">Could not load cities and municipalities</option>}{municipalitiesState !== 'loading' && municipalitiesState !== 'error' && <option value="">{province ? 'Select a municipality / city' : 'Select a province first'}</option>}{safeMunicipalities.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Barangay" required error={errors.barangay}><select {...register('barangay')} value={barangay || ''} disabled={!municipality || profileLocked} aria-busy={barangaysState === 'loading'} className={input}>{barangaysState === 'loading' && <option value="">Loading barangays…</option>}{barangaysState === 'error' && <option value="">Could not load barangays</option>}{barangaysState !== 'loading' && barangaysState !== 'error' && <option value="">{municipality ? 'Select a barangay' : 'Select a municipality / city first'}</option>}{safeBarangays.map((item) => <option key={item.code} value={item.name}>{item.name}</option>)}</select></Field><Field label="Contact number" required error={errors.contact_no}><input inputMode="tel" maxLength={contactMaxLen} {...register('contact_no', { onChange: (e) => { let val = e.target.value.replace(/\D/g, ''); const limit = val.startsWith('9') && !val.startsWith('09') ? 10 : 11; if (val.length > limit) { val = val.slice(0, limit); } e.target.value = val; } })} disabled={profileLocked} className={input}/></Field><Field label="Email" required error={errors.email}><input type="email" {...register('email')} disabled={profileLocked} className={input}/></Field></div></Section>
     <Section title="Education and preference">
       <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-center gap-3">
@@ -1104,16 +1140,16 @@ export default function RegisterPage() {
     </Section>
     {isQuestMode && <Section title="Preferred job vacancies (optional)">{!eventId ? <p className="text-sm text-slate-500">Choose an event to see its vacancies.</p> : !safeVacancies.length ? <p className="text-sm text-slate-500">No active vacancies have been posted for this event.</p> : <div className="grid gap-3 sm:grid-cols-2">{safeVacancies.map((vacancy) => { const def = vacancy.vacancy_definitions ?? {}; return <label key={vacancy.id} className="flex cursor-pointer gap-3 rounded-lg border border-slate-200 p-3 hover:border-blue-300"><input type="checkbox" checked={selectedVacancies.includes(vacancy.id)} onChange={() => toggleVacancy(vacancy.id)} disabled={profileLocked} className="mt-1 h-4 w-4"/><span><span className="block font-medium">{def.position}</span><span className="block text-sm text-slate-600">{def.company_name}{def.place_of_assignment ? ` · ${def.place_of_assignment}` : ''}</span></span></label> })}</div>}</Section>}
     <Section title="Data privacy consent">
-    <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-bold text-slate-900">Data Privacy Consent — Republic Act No. 10173 (Data Privacy Act of 2012)</p>
-      <p className="mt-2 text-xs leading-relaxed text-slate-600">
+      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Data Privacy Consent — Republic Act No. 10173 (Data Privacy Act of 2012)</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
         I voluntarily provide my personal information and consent to its collection, recording, organization, storage, updating,
         use, and disclosure by the Provincial Public Employment Service Office (PPESO)
         exclusively for job-matching, employment referral, labor-market reporting, and related employment-facilitation purposes.
         I understand that my information may be shared with participating employers only for positions I have applied for, and
         that it will be protected with appropriate security measures.
       </p>
-      <p className="mt-2 text-xs leading-relaxed text-slate-600">
+      <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
         Under RA 10173, I have the right to be informed, to object to processing, to access and obtain a copy of my data, to
         request rectification or erasure of inaccurate or unlawfully processed data, to suspend withdrawal of consent, and to
         claim compensation in case of damages. I may exercise these rights by contacting the PESO Provincial Office,

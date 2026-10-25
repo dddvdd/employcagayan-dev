@@ -42,6 +42,11 @@ export default function MatchExplanationPanel({ view }) {
         <EvidenceList title="Gaps" items={view.gaps} tone="bg-amber-50 text-amber-900" />
       </div>
 
+      {view.source_binding && <section className="rounded-xl border border-slate-200 px-4 py-3" aria-label="Comparison information">
+        <h3 className="text-sm font-bold text-slate-900">Comparison information</h3>
+        <p className="mt-2 text-sm text-slate-700">{view.source_binding_note}</p>
+      </section>}
+
       <section aria-labelledby="match-breakdown-heading">
         <h3 id="match-breakdown-heading" className="text-lg font-bold text-slate-900">Match breakdown</h3>
         <p className="mt-1 text-sm text-slate-600">Open a section to review the structured evidence behind it.</p>
@@ -78,6 +83,30 @@ export default function MatchExplanationPanel({ view }) {
           ))}
         </div>
       </section>
+
+      {view.reviewed_skill_support && <section className="rounded-xl border border-slate-200 px-4 py-4" aria-label="Reviewed skill support">
+        <h3 className="text-sm font-bold text-slate-900">Reviewed skill support</h3>
+        <p className="mt-2 text-sm text-slate-700">{view.reviewed_skill_note}</p>
+        <p className="mt-2 text-xs text-slate-600">Base score: {view.base_score} / 100. This is a ranking signal, not a hiring probability.</p>
+        {view.reviewed_skill_support.hints?.length > 0 && <details className="mt-3">
+          <summary className="cursor-pointer rounded py-2 text-sm font-semibold focus-visible:ring-2">Review skill-link evidence ({view.reviewed_skill_support.hints.length})</summary>
+          <ul className="mt-2 space-y-3">
+            {view.reviewed_skill_support.hints.slice(0,20).map(hint=><li key={hint.relationship_id+hint.direction} className="break-words rounded bg-slate-50 p-3 text-sm">
+              <p className="font-semibold">{hint.source_skill_name} → {hint.target_skill_name}</p>
+              <p>{hint.relationship_type === 'related' ? 'Related skills (two-way)' : 'Transferable skill (one-way)'}; source skill {hint.source_verification_status === 'verified' ? 'verified' : 'needs verification — no bonus credit'}.</p>
+              <p className="mt-1 text-xs">Source version: {hint.source_version}. Relationship revision: {hint.relationship_revision}.</p>
+              <p className="mt-1 text-xs">Reference: {hint.evidence_reference}</p>
+            </li>)}
+          </ul>
+          {view.reviewed_skill_support.hints.length>20 && <p className="mt-2 text-xs">Showing the first 20 links. Each target counts at most once toward the bonus.</p>}
+        </details>}
+      </section>}
+
+      {view.keyword_support && <section className="rounded-xl border border-slate-200 px-4 py-4" aria-label="Matching job keywords">
+        <h3 className="text-sm font-bold text-slate-900">Matching job keywords</h3>
+        <p className="mt-2 text-sm text-slate-700">{view.keyword_note}</p>
+        {view.keyword_support.matched_terms?.length > 0 && <p className="mt-2 break-words text-sm text-slate-700">Shared terms: {view.keyword_support.matched_terms.join(', ')}.</p>}
+      </section>}
 
       <section className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3" aria-label="Additional profile similarity">
         <h3 className="text-sm font-bold text-blue-900">Additional profile similarity</h3>

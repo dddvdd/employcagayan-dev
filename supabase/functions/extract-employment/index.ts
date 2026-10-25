@@ -13,11 +13,12 @@
 //     function's own checks are the second layer, not the only one.
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3'
 import { createHandler } from './handler.ts'
+import { createExtractionProvider } from './provider.js'
+import { createManagedExtraction } from './managed.js'
+import { createExtractionResolver } from './resolver.js'
 
-const MODEL = 'openai/gpt-4o-mini'
-const API_BASE = 'https://openrouter.ai/api/v1'
 
 const SYSTEM_PROMPT = `You are an employment data extraction assistant. Extract structured employment concepts from the given text.
 
@@ -48,7 +49,7 @@ Rules:
  * this repository, so it must be supplied at deploy time rather than guessed.
  * Wildcard CORS is deliberately not used on a paid endpoint.
  */
-const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:5173,https://localhost:5173')
+const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:5173,https://localhost:5173,http://127.0.0.1:5173,https://127.0.0.1:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean)
@@ -101,46 +102,28 @@ const handler = createHandler({
     return data === true
   },
 
-  async callProvider(text) {
-    const openaiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openaiKey) {
-      console.error(JSON.stringify({ outcome: 'provider_key_missing' }))
-      return { ok: false, status: 500 }
-    }
-    const response = await fetch(`${API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://trabaho.app',
-        'X-Title': 'Trabaho Employment Intelligence',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: text },
-        ],
-        temperature: 0.1,
-        max_tokens: 2000,
-        response_format: { type: 'json_object' },
+  callProvider: createExtractionProvider({
+    apiKey: Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY'),
+    systemPrompt: SYSTEM_PROMPT,
+  }),
+
+  async runManaged(token, body) {
+    const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!key) return {status: 503, body: {error: 'Generation is unavailable', code: 'processing_failed'}}
+    const caller = callerClient(token)
+    const worker = createClient(SUPABASE_URL, key, {auth: {persistSession: false, autoRefreshToken: false}})
+    const run = createManagedExtraction({
+      begin: args => caller.rpc('begin_ai_extraction', args),
+      complete: args => worker.rpc('complete_ai_extraction', args),
+      fail: args => worker.rpc('fail_ai_extraction', args),
+      callProvider: createExtractionProvider({
+        apiKey: Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY'),
+        systemPrompt: SYSTEM_PROMPT + '\nCopy exact source excerpts, including employment field labels where possible. Keep past work distinct from career interests. Do not turn reported facts into verified facts.',
       }),
+      resolve: createExtractionResolver(caller),
+      log: entry => console.log(JSON.stringify(entry)),
     })
-    if (!response.ok) {
-      // Status only. The provider body is never logged or returned.
-      return { ok: false, status: response.status }
-    }
-    const completion = await response.json()
-    const content = completion?.choices?.[0]?.message?.content
-    if (typeof content !== 'string' || content.length === 0) {
-      return { ok: false, status: 502 }
-    }
-    return {
-      ok: true,
-      content,
-      inputTokens: completion?.usage?.prompt_tokens ?? null,
-      outputTokens: completion?.usage?.completion_tokens ?? null,
-    }
+    return run(body)
   },
 
   allowedOrigins: ALLOWED_ORIGINS,

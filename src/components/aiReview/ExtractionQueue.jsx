@@ -80,16 +80,18 @@ function ensureReviewSuccess(result, fallback) {
   if (result?.success === false) throw new Error(result.message || fallback)
 }
 
-export default function ExtractionQueue({ title = 'AI Extraction Review', description, entityType, entityId }) {
+export default function ExtractionQueue({ title = 'AI Extraction Review', description, entityType, entityId, headerAction }) {
   const [suggestions, setSuggestions] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState('all')
   const [filterEntityType, setFilterEntityType] = useState(entityType || 'all')
   const [filterResolution, setFilterResolution] = useState('all')
   const [selectedSuggestion, setSelectedSuggestion] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   const loadSuggestions = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const data = await aiReviewService.listPendingSuggestions({
         entityType: filterEntityType === 'all' ? undefined : filterEntityType,
@@ -98,7 +100,9 @@ export default function ExtractionQueue({ title = 'AI Extraction Review', descri
       })
       setSuggestions(data || [])
     } catch (err) {
-      toast.error(`Failed to load suggestions: ${err.message}`)
+      const message = err?.message || 'Request failed'
+      setLoadError(message)
+      toast.error(`Failed to load suggestions: ${message}`)
       setSuggestions([])
     } finally {
       setLoading(false)
@@ -133,9 +137,9 @@ export default function ExtractionQueue({ title = 'AI Extraction Review', descri
     }
   }
 
-  const handleEdit = async (suggestionId, editedTerm, editedCanonicalId) => {
+  const handleEdit = async (suggestionId, editedTerm, editedCanonicalId, details) => {
     try {
-      const result = await aiReviewService.editSuggestion(suggestionId, editedTerm, editedCanonicalId)
+      const result = await aiReviewService.editSuggestion(suggestionId, editedTerm, editedCanonicalId, details)
       ensureReviewSuccess(result, 'Edit failed')
       toast.success('Suggestion edited and accepted')
       await loadSuggestions()
@@ -167,9 +171,12 @@ export default function ExtractionQueue({ title = 'AI Extraction Review', descri
 
   return (
     <div className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-black text-slate-900">{title}</h1>
-        {description && <p className="max-w-3xl text-sm text-slate-600">{description}</p>}
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-black text-slate-900">{title}</h1>
+          {description && <p className="max-w-3xl text-sm text-slate-600">{description}</p>}
+        </div>
+        {headerAction}
       </header>
 
       <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3">
@@ -217,11 +224,16 @@ export default function ExtractionQueue({ title = 'AI Extraction Review', descri
         </button>
       </div>
 
-      {filteredSuggestions.length === 0 ? (
+      {loadError ? (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-900">
+          <h3 className="font-semibold">AI suggestions are unavailable</h3>
+          <p className="mt-1 text-sm">Please refresh after checking your account access.</p>
+        </div>
+      ) : filteredSuggestions.length === 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white py-12 text-center">
           <PixelPin className="mx-auto h-10 w-10 text-slate-300" />
           <h3 className="mt-4 text-lg font-semibold text-slate-900">No pending suggestions</h3>
-          <p className="mt-1 text-sm text-slate-500">All matching AI extraction suggestions have been reviewed.</p>
+          <p className="mt-1 text-sm text-slate-500">New suggestions appear here when employment information is extracted for review.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg bg-white shadow-sm ring-1 ring-slate-200">

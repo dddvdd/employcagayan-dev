@@ -42,3 +42,5 @@ export function createSignedUrl(bucket, path, expiresIn = 600) {
 export function getPublicUrl(bucket, path) {
   return ensureProvider().getPublicUrl(bucket, path)
 }
+/** Private bytes, authorized as the signed-in caller on each request. */
+export function download(bucket,path) {return ensureProvider().download(bucket,path)}

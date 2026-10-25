@@ -11,14 +11,16 @@ export default function ProgramCyclePage() {
   const [selected, setSelected] = useState(null)
   const [history, setHistory] = useState({ status: 'idle', data: null })
   const [transitionError, setTransitionError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   const loadParticipants = useCallback(() => {
+    setParticipants({ status: 'loading', rows: [] })
     import('../../lib/supabase.js').then(({ supabase }) =>
       supabase.from('program_participations').select('id, participant_id, current_status, last_event_id, source, created_at, updated_at').eq('program_cycle_id', cycleId).order('created_at', { ascending: false })
     ).then(({ data, error }) => {
       if (error) setParticipants({ status: 'error', rows: [] })
       else setParticipants({ status: 'ready', rows: data ?? [] })
-    })
+    }).catch(() => setParticipants({ status: 'error', rows: [] }))
   }, [cycleId])
 
   useEffect(() => {
@@ -29,10 +31,10 @@ export default function ProgramCyclePage() {
       if (!alive) return
       if (error) setCycle({ status: 'error', data: null })
       else setCycle({ status: 'ready', data })
-    })
+    }).catch(() => { if (alive) setCycle({ status: 'error', data: null }) })
     loadParticipants()
     return () => { alive = false }
-  }, [cycleId, loadParticipants])
+  }, [cycleId, loadParticipants, reloadKey])
 
   function loadHistory(participationId) {
     setSelected(participationId)
@@ -51,7 +53,7 @@ export default function ProgramCyclePage() {
 
   if (cycle.status === 'error' || !cycle.data) return (
     <div className="min-w-0 space-y-6 p-4 sm:p-6 lg:p-8">
-      <div className={PANEL} role="alert"><p className="text-sm text-red-700">Cycle not found.</p></div>
+      <div className={PANEL} role="alert"><p className="text-sm text-red-700">Cycle details couldn’t be loaded. It may no longer be available.</p><button type="button" onClick={() => { setCycle({ status: 'loading', data: null }); setReloadKey((key) => key + 1) }} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button></div>
     </div>
   )
 
@@ -84,13 +86,13 @@ export default function ProgramCyclePage() {
       <section aria-label="Workflow configuration" className={PANEL}>
         <h2 className="font-semibold text-slate-900">Workflow</h2>
         <p className="mt-1 text-sm text-slate-600">Configured stages and permitted transitions for this cycle.</p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        {diagram.nodes.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">
           {diagram.nodes.map(node => (
             <span key={node} className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${stageColor(node)}`}>
               {PROGRAM_STAGE_LABELS[node] ?? node}
             </span>
           ))}
-        </div>
+        </div> : <p className="mt-3 text-sm text-slate-600">No workflow stages are configured for this cycle yet.</p>}
         {diagram.edges.length > 0 && (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -119,6 +121,7 @@ export default function ProgramCyclePage() {
       <section aria-label="Participants">
         <h2 className="mb-3 text-lg font-bold text-slate-900">Participants ({participants.rows.length})</h2>
         {participants.status === 'loading' && <div className={PANEL + ' min-h-24 motion-safe:animate-pulse'} role="status"><span className="sr-only">Loading participants</span></div>}
+        {participants.status === 'error' && <div className={PANEL} role="alert"><p className="text-sm text-red-700">Participants couldn’t be loaded.</p><button type="button" onClick={loadParticipants} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Reload participants</button></div>}
         {participants.status === 'ready' && participants.rows.length === 0 && (
           <div className={PANEL}><p className="text-sm text-slate-600">No participants enrolled in this cycle yet.</p></div>
         )}
@@ -159,7 +162,7 @@ export default function ProgramCyclePage() {
         <section aria-label="Transition history" className={PANEL}>
           <h2 className="font-semibold text-slate-900">Transition History</h2>
           {history.status === 'loading' && <p className="mt-3 text-sm text-slate-600">Loading history...</p>}
-          {history.status === 'error' && <p className="mt-3 text-sm text-red-700">Could not load history.</p>}
+          {history.status === 'error' && <div role="alert" className="mt-3"><p className="text-sm text-red-700">Could not load history.</p><button type="button" onClick={() => loadHistory(selected)} className="mt-2 min-h-10 font-semibold text-blue-700 underline">Try again</button></div>}
           {history.status === 'ready' && history.data && (
             <div className="mt-3">
               {Array.isArray(history.data) && history.data.length > 0 ? history.data.map(participation => (

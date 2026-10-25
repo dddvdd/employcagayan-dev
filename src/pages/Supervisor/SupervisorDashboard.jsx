@@ -1,11 +1,12 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { format } from 'date-fns'
 import { eventTypeDisplay } from '../../domain/eventTypes'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { PixelArrow, PixelPin } from '../../components/public/pixel'
 import { supervisorService } from '../../services/supervisorService'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 // ----- Pixel design tokens (shared with scanner/calendar/jobseeker pages) -----
 const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
@@ -26,6 +27,8 @@ export default function SupervisorDashboard() {
     returningOfws: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [events, setEvents] = useState([])
 
@@ -40,14 +43,10 @@ export default function SupervisorDashboard() {
   const supervisorJurisdiction = profile?.jurisdiction || ''
 
   const fetchVisibleEvents = useCallback(async () => {
-    try {
-      return await supervisorService.fetchVisibleEvents({
-        isProvincial,
-        jurisdiction: supervisorJurisdiction,
-      })
-    } catch {
-      return []
-    }
+    return await supervisorService.fetchVisibleEvents({
+      isProvincial,
+      jurisdiction: supervisorJurisdiction,
+    })
   }, [isProvincial, supervisorJurisdiction])
 
   const fetchSummary = useCallback(async (visibleEventIds) => {
@@ -67,6 +66,7 @@ export default function SupervisorDashboard() {
       })
     } catch (err) {
       console.error('Failed to fetch summary:', err)
+      setLoadError(true)
       toast.error('Failed to load dashboard data')
     } finally {
       setLoading(false)
@@ -74,12 +74,18 @@ export default function SupervisorDashboard() {
   }, [selectedEvent])
 
   useEffect(() => {
+    setLoading(true)
+    setLoadError(false)
     fetchVisibleEvents().then(ev => {
       setEvents(ev)
       const eventIds = ev.map(e => e.id)
       fetchSummary(eventIds)
+    }).catch((err) => {
+      console.error('Failed to load visible events:', err)
+      setLoadError(true)
+      setLoading(false)
     })
-  }, [fetchVisibleEvents, fetchSummary])
+  }, [fetchVisibleEvents, fetchSummary, reloadKey])
 
   // Build query for overview cards (may hit different tables).
   // Delegates to supervisorService — the page only picks the right card config.
@@ -159,7 +165,7 @@ export default function SupervisorDashboard() {
       }))
     }
 
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -271,6 +277,16 @@ export default function SupervisorDashboard() {
     )
   }
 
+  if (loadError) {
+    return (
+      <section role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+        <h1 className="text-lg font-bold">Supervisor data could not be loaded</h1>
+        <p className="mt-1 text-sm">Check the connection or your event access, then try again.</p>
+        <button type="button" onClick={() => setReloadKey(key => key + 1)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+      </section>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className={`${PANEL} flex flex-col gap-3 bg-white p-4 sm:flex-row sm:items-center sm:justify-between`}>
@@ -305,6 +321,7 @@ export default function SupervisorDashboard() {
             <button
               key={card.label}
               type="button"
+              disabled={loading}
               onClick={() => openModal(card)}
               className={`${PANEL} p-5 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-pink-300`}
             >
@@ -347,20 +364,13 @@ export default function SupervisorDashboard() {
 
       {/* Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setModalOpen(null)}>
-          <div
-            className={`${PANEL} flex max-h-[90dvh] w-full max-w-4xl flex-col`}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${modalOpen.label} list`}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <AccessibleDialog open onClose={() => setModalOpen(null)} labelledBy="supervisor-list-title" className={`${PANEL} flex max-w-4xl flex-col overflow-hidden p-0`}>
             {/* Header */}
             <div className="flex items-center justify-between gap-3 border-b-2 border-slate-900 px-4 py-3 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 <span aria-hidden className={`h-5 w-5 shrink-0 border-2 border-slate-900 ${SWATCH[modalOpen.color] || 'bg-slate-300'}`} />
                 <div className="min-w-0">
-                  <h3 className="truncate text-lg font-black uppercase tracking-wide text-slate-900">{modalOpen.label}</h3>
+                  <h2 id="supervisor-list-title" className="truncate text-lg font-black uppercase tracking-wide text-slate-900">{modalOpen.label}</h2>
                   <p aria-live="polite" className="font-mono text-[11px] font-bold text-slate-500">{filteredModalData.length} record(s)</p>
                 </div>
               </div>
@@ -599,8 +609,7 @@ export default function SupervisorDashboard() {
                 </table>
               )}
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

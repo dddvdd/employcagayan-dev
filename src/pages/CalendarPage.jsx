@@ -13,25 +13,25 @@ import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, en
 import { eventTypeDisplay } from '../domain/eventTypes'
 import { toast } from 'sonner'
 import ThemeToggle from '../components/ThemeToggle'
-import { PixelArrow, PixelDivider } from '../components/public/pixel'
+import AccessibleDialog from '../components/ui/AccessibleDialog'
+import { PixelArrow } from '../components/public/pixel'
 
 const STATUS_CHIP_FIXED = {
-  upcoming: 'bg-blue-100 text-blue-800 border-blue-200',
-  ongoing: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-  completed: 'bg-slate-100 text-slate-500 border-slate-200',
-  cancelled: 'bg-red-50 text-red-600 border-red-200 line-through',
+  upcoming: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/70 dark:text-blue-300 dark:border-blue-800/70 dark:hover:bg-blue-900/70',
+  ongoing: 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800/70 dark:hover:bg-emerald-900/70',
+  completed: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200/70 dark:bg-slate-800/80 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700/80',
+  cancelled: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 line-through dark:bg-red-950/70 dark:text-red-300 dark:border-red-800/70 dark:hover:bg-red-900/70',
 }
 const STATUS_PILL = {
-  upcoming: 'bg-blue-100 text-blue-800',
-  ongoing: 'bg-emerald-100 text-emerald-800',
-  completed: 'bg-slate-100 text-slate-600',
-  cancelled: 'bg-red-100 text-red-700',
+  upcoming: 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 dark:border dark:border-blue-800/60',
+  ongoing: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border dark:border-emerald-800/60',
+  completed: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border dark:border-slate-700',
+  cancelled: 'bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300 dark:border dark:border-red-800/60',
 }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-// ----- PPESO pixel design tokens (16-bit lo-fi calendar) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
-const BTN = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border-2 border-slate-900 px-3 font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
+const PANEL = 'rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
+const BTN = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:focus-visible:ring-blue-950'
 
 const ROLE_HOME = {
   [ROLES.EMPLOYER]: '/employer/dashboard',
@@ -48,6 +48,7 @@ export default function CalendarPage() {
   const [cursor, setCursor] = useState(new Date())
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [selected, setSelected] = useState(null)
 
   function goBack() {
@@ -60,9 +61,21 @@ export default function CalendarPage() {
     let alive = true
     eventService.listAllOrdered()
       .then((rows) => { if (alive) { setEvents(rows || []); setLoading(false) } })
-      .catch(() => { if (alive) setLoading(false) })
+      .catch(() => { if (alive) { setLoadError(true); setLoading(false) } })
     return () => { alive = false }
   }, [])
+
+  async function retryLoad() {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      setEvents(await eventService.listAllOrdered() || [])
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const days = useMemo(() => eachDayOfInterval({
     start: startOfWeek(startOfMonth(cursor)),
@@ -77,66 +90,106 @@ export default function CalendarPage() {
     }
     return map
   }, [events])
+  const monthAgenda = useMemo(() => days
+    .filter(day => isSameMonth(day, cursor))
+    .flatMap(day => (byDay[format(day, 'yyyy-MM-dd')] || []).map(event => ({ day, event }))), [days, byDay, cursor])
 
   return (
-    <main className="theme-employer min-h-screen bg-slate-50 px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex items-center justify-between gap-3">
-          <button onClick={goBack} className={`${BTN} bg-white text-slate-700`} aria-label="Go back">
-            <PixelArrow className="h-3 w-3 rotate-180 text-amber-500" /> Back
+    <main className="min-h-screen bg-slate-50 px-4 py-5 transition-colors sm:px-6 sm:py-8 dark:bg-slate-950">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <button onClick={goBack} className={`${BTN} bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`} aria-label="Go back">
+            <PixelArrow className="h-3 w-3 rotate-180 text-blue-600 dark:text-blue-400" /> Back
           </button>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+          </div>
         </div>
 
-        <section className={`mt-4 p-4 sm:p-5 ${PANEL} pixel-grid-bg`}>
-          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-500">Event Schedule</p>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-3">
-            <button onClick={() => setCursor(subMonths(cursor, 1))} aria-label="Previous month" className={`${BTN} w-12 justify-center bg-white px-0 text-lg`}>‹</button>
-            <h1 aria-live="polite" className="min-w-0 flex-1 text-center text-3xl font-black uppercase tracking-tight text-slate-900 sm:text-left sm:text-4xl">
+        <section className={`${PANEL} flex flex-wrap items-center justify-between gap-5 p-4 sm:p-6`}>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[.12em] text-blue-700 dark:text-blue-300">Cagayan PESO schedule</p>
+            <h1 aria-live="polite" className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
               {format(cursor, 'MMMM yyyy')}
             </h1>
-            <button onClick={() => setCursor(addMonths(cursor, 1))} aria-label="Next month" className={`${BTN} w-12 justify-center bg-white px-0 text-lg`}>›</button>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button onClick={() => setCursor(new Date())} className={`${BTN} bg-amber-400 text-slate-900 text-xs`}>Today</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setCursor(new Date())} className={`${BTN} bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}>Today</button>
             {role === 'admin' && (
-              <button onClick={() => navigate('/admin/events')} className={`${BTN} bg-white text-xs text-slate-700`}>+ New Activity</button>
+              <button onClick={() => navigate('/admin/events')} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:focus-visible:ring-blue-900">Create activity</button>
             )}
-            <PixelDivider className="ml-auto hidden sm:flex" />
+            <div className="ml-1 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+              <button onClick={() => setCursor(subMonths(cursor, 1))} aria-label="Previous month" className="grid h-10 w-10 place-items-center rounded-lg text-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-300 dark:hover:bg-slate-800">‹</button>
+              <button onClick={() => setCursor(addMonths(cursor, 1))} aria-label="Next month" className="grid h-10 w-10 place-items-center rounded-lg text-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-300 dark:hover:bg-slate-800">›</button>
+            </div>
           </div>
         </section>
 
         <div className={`mt-4 overflow-hidden ${PANEL}`}>
-          <div className="grid grid-cols-7 border-b-2 border-slate-900 bg-slate-900">
-            {WEEKDAYS.map(d => <div key={d} className="px-1 py-2 text-center font-mono text-[10px] font-bold uppercase tracking-widest text-amber-400">{d}</div>)}
+          <div className="hidden grid-cols-7 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 sm:grid">
+            {WEEKDAYS.map(d => <div key={d} className="px-1 py-3 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 sm:text-xs">{d}</div>)}
           </div>
           {loading ? (
             <div className="grid min-h-64 place-items-center" role="status">
               <div className="text-center">
-                <div className="flex items-center justify-center gap-1.5" aria-hidden>
-                  {[0, 1, 2].map(i => (
-                    <span key={i} className="pixel-blink inline-block h-2.5 w-2.5 bg-amber-400" style={{ animationDelay: `${i * 0.15}s` }} />
-                  ))}
-                </div>
-                <p className="mt-3 font-mono text-xs font-bold uppercase tracking-widest text-slate-500">Loading activities…</p>
+                <span aria-hidden="true" className="mx-auto block h-7 w-7 animate-spin rounded-full border-2 border-blue-100 border-t-blue-700 dark:border-slate-700 dark:border-t-blue-400" />
+                <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Loading activities…</p>
+              </div>
+            </div>
+          ) : loadError ? (
+            <div className="grid min-h-64 place-items-center p-6 text-center" role="alert">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Calendar unavailable</h2>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Activities could not be loaded. Check your connection and try again.</p>
+                <button onClick={retryLoad} className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">Try again</button>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-7">
-              {days.map(day => {
+            <>
+            <div className="divide-y divide-slate-100 sm:hidden dark:divide-slate-800">
+              {monthAgenda.length === 0 ? (
+                <p className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No activities scheduled this month.</p>
+              ) : monthAgenda.map(({ day, event }) => (
+                <div key={`${event.id}-${format(day, 'yyyy-MM-dd')}`} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-14 shrink-0 text-center">
+                    <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">{format(day, 'EEE')}</p>
+                    <p className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{format(day, 'd')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(event)}
+                    aria-label={`${event.event_name}, ${format(day, 'MMMM d')}, ${EVENT_STATUS_LABEL[event.status]}`}
+                    className={`min-h-11 min-w-0 flex-1 rounded-xl border px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:focus-visible:ring-blue-900 ${STATUS_CHIP_FIXED[event.status] || STATUS_CHIP_FIXED.upcoming}`}
+                  >
+                    <span className="block truncate text-sm font-semibold">{event.event_name}</span>
+                    <span className="mt-0.5 block text-xs opacity-80">{event.time_from ? `${format(parseISO(`2000-01-01T${event.time_from}`), 'h:mm a')} · ` : ''}{EVENT_STATUS_LABEL[event.status]}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="hidden grid-cols-7 sm:grid">
+              {days.map((day, idx) => {
                 const dayEvents = byDay[format(day, 'yyyy-MM-dd')] || []
                 const inMonth = isSameMonth(day, cursor)
                 const isToday = isSameDay(day, new Date())
+                const isRightEdge = (idx + 1) % 7 === 0
+                const isBottomRow = idx >= days.length - 7
                 return (
                   <div
                     key={day.toISOString()}
                     aria-current={isToday ? 'date' : undefined}
-                    className={`min-h-24 border-b border-r border-slate-200 p-1.5 last:border-r-0 sm:min-h-28 ${inMonth ? '' : 'bg-slate-50/70'}`}
+                    className={`min-h-[4.5rem] border-b border-r border-slate-200 p-1 transition-colors sm:min-h-28 sm:p-2 dark:border-slate-800 ${
+                      isRightEdge ? 'border-r-0' : ''
+                    } ${
+                      isBottomRow ? 'border-b-0' : ''
+                    } ${
+                      inMonth ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/70 dark:bg-slate-950/70'
+                    }`}
                   >
-                    <div className={`mb-1 inline-grid h-7 w-7 place-items-center rounded-md border-2 text-xs font-black ${
+                    <div className={`mb-1 inline-grid h-7 w-7 place-items-center rounded-full text-xs font-semibold ${
                       isToday
-                        ? 'border-slate-900 bg-amber-400 text-slate-900 pixel-shadow-sm'
-                        : inMonth ? 'border-transparent text-slate-700' : 'border-transparent text-slate-300'
+                        ? 'bg-blue-700 text-white shadow-sm'
+                        : inMonth ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-600'
                     }`}>
                       {format(day, 'd')}
                     </div>
@@ -147,11 +200,11 @@ export default function CalendarPage() {
                           onClick={() => setSelected(ev)}
                           title={`${ev.event_name} — ${EVENT_STATUS_LABEL[ev.status]}`}
                           aria-label={`${ev.event_name} (${EVENT_STATUS_LABEL[ev.status]})`}
-                          className={`flex min-h-[40px] w-full items-center truncate rounded-md border px-2 py-1 text-left text-[10px] font-semibold leading-tight hover:brightness-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300 sm:min-h-[32px] sm:text-[11px] ${STATUS_CHIP_FIXED[ev.status] || STATUS_CHIP_FIXED.upcoming}`}
+                          className={`flex min-h-8 w-full items-center truncate rounded-lg border px-1.5 py-1 text-left text-[9px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:px-2 sm:text-[11px] ${STATUS_CHIP_FIXED[ev.status] || STATUS_CHIP_FIXED.upcoming}`}
                         >
-                          {ev.status === 'ongoing' && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 align-middle" />}
+                          {ev.status === 'ongoing' && <span className="mr-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500 align-middle" />}
                           {ev.time_from && <span className="font-normal opacity-70">{format(parseISO(`2000-01-01T${ev.time_from}`), 'h:mm a')} </span>}
-                          {ev.event_name}
+                          <span className="truncate">{ev.event_name}</span>
                         </button>
                       ))}
                     </div>
@@ -159,16 +212,16 @@ export default function CalendarPage() {
                 )
               })}
             </div>
+            </>
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-3 font-mono text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-slate-600 dark:text-slate-300" aria-label="Event status legend">
           {[['upcoming', 'Upcoming'], ['ongoing', 'Live'], ['completed', 'Completed'], ['cancelled', 'Cancelled']].map(([s, l]) => (
-            <span key={s} className="flex items-center gap-1.5"><span aria-hidden className={`inline-block h-3 w-3 border-2 border-slate-900 ${STATUS_CHIP_FIXED[s]}`} />{l}</span>
+            <span key={s} className="flex items-center gap-2"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-full ${s === 'upcoming' ? 'bg-blue-500' : s === 'ongoing' ? 'bg-emerald-500' : s === 'completed' ? 'bg-slate-400' : 'bg-red-400'}`} />{l}</span>
           ))}
         </div>
 
-        <PixelDivider className="mt-6" />
       </div>
 
       {selected && (
@@ -354,27 +407,21 @@ function EventDetails({ event, role, profileId, onClose, navigateFn }) {
     && !myParticipation && ['upcoming', 'ongoing'].includes(event.status)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Activity details: ${event.event_name}`}
-        className={`${PANEL} max-h-[90dvh] w-full max-w-lg overflow-y-auto p-6`}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AccessibleDialog open onClose={onClose} labelledBy="calendar-event-dialog-title" className={`max-w-lg ${PANEL} shadow-2xl shadow-slate-950/20`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-black uppercase tracking-wide text-slate-900">{event.event_name}</h2>
-            <span className={`mt-1 inline-block rounded-md border-2 border-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest ${STATUS_PILL[event.status]}`}>{EVENT_STATUS_LABEL[event.status]}</span>
+            <h2 id="calendar-event-dialog-title" className="text-lg font-semibold leading-snug text-slate-900 dark:text-white">{event.event_name}</h2>
+            <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_PILL[event.status] || STATUS_PILL.upcoming}`}>{EVENT_STATUS_LABEL[event.status]}</span>
           </div>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close activity details"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-blue-950"
           >×</button>
         </div>
 
-        <dl className="mt-4 space-y-1.5 text-sm text-slate-600">
+        <dl className="mt-5 space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
           <Detail label="Date" value={format(parseISO(event.event_date), 'EEEE, MMMM d, yyyy')} />
           <Detail label="Time" value={[event.time_from, event.time_to].filter(Boolean).map(t => format(parseISO(`2000-01-01T${t}`), 'h:mm a')).join(' – ') || '—'} />
           <Detail label="Venue" value={event.venue || event.location} />
@@ -384,74 +431,80 @@ function EventDetails({ event, role, profileId, onClose, navigateFn }) {
 
         {isStaffLevel && stats && (
           <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs">
-            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">{stats.jobseekers}</p><p className="text-slate-500">Jobseekers registered</p></div>
-            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">{stats.checkedIn}</p><p className="text-slate-500">Checked in on site</p></div>
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-slate-700/60 dark:bg-slate-800/60">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{stats.jobseekers}</p>
+              <p className="text-slate-500 dark:text-slate-400">Jobseekers registered</p>
+            </div>
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-slate-700/60 dark:bg-slate-800/60">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{stats.checkedIn}</p>
+              <p className="text-slate-500 dark:text-slate-400">Checked in on site</p>
+            </div>
           </div>
         )}
 
         {isEmployer && (
-          <div className="mt-4 rounded-xl border border-slate-200 p-4">
+          <div className="mt-4 rounded-xl border border-slate-200 p-4 dark:border-slate-700 dark:bg-slate-800/30">
             {myParticipation ? (
               <>
-                <p className="text-sm font-semibold text-emerald-700">✓ Participating ({myParticipation.status.replace('_', ' ')})</p>
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">✓ Participating ({myParticipation.status.replace('_', ' ')})</p>
                 {pickingVacancies && (
-                  <div className="mt-3 border-t border-slate-100 pt-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Select vacancies to bring</p>
+                  <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-700">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Select vacancies to bring</p>
                     <div className="mt-2 space-y-1.5">
                       {myDefs.map(d => (
-                        <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
+                        <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/70">
                           <input
                             type="checkbox"
                             checked={pickedDefs.includes(d.id)}
                             onChange={(e) => setPickedDefs(e.target.checked ? [...pickedDefs, d.id] : pickedDefs.filter(id => id !== d.id))}
-                            className="h-4 w-4 rounded text-violet-600"
+                            className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
                           />
-                          <span className="min-w-0 flex-1 truncate text-slate-800">{d.position}</span>
-                          <span className="text-xs text-slate-400">{d.available_slots > 0 ? `${d.available_slots} openings` : '—'}</span>
+                          <span className="min-w-0 flex-1 truncate text-slate-800 dark:text-slate-200">{d.position}</span>
+                          <span className="text-xs text-slate-400 dark:text-slate-500">{d.available_slots > 0 ? `${d.available_slots} openings` : '—'}</span>
                         </label>
                       ))}
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button onClick={() => setPickingVacancies(false)} className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-600">Skip for now</button>
-                      <button onClick={confirmOfferings} disabled={busy || pickedDefs.length === 0} className="flex-1 rounded-lg bg-violet-700 py-2 text-xs font-bold text-white hover:bg-violet-800 disabled:opacity-50">
+                      <button onClick={() => setPickingVacancies(false)} className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Skip for now</button>
+                      <button onClick={confirmOfferings} disabled={busy || pickedDefs.length === 0} className="flex-1 rounded-lg bg-blue-700 py-2 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-700">
                         {busy ? 'Saving…' : 'Confirm'}
                       </button>
                     </div>
                   </div>
                 )}
                 {!pickingVacancies && employerStatus?.employer_code && (
-                  <p className="mt-1 text-xs text-slate-400">Your Employer ID for gate check-in: <span className="font-mono font-bold text-slate-600">{employerStatus.employer_code}</span></p>
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-400">Your Employer ID for gate check-in: <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{employerStatus.employer_code}</span></p>
                 )}
               </>
             ) : canParticipate ? (
-              <button onClick={participate} disabled={busy} className="w-full rounded-lg bg-violet-700 py-2.5 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50">
+              <button onClick={participate} disabled={busy} className="w-full rounded-lg bg-blue-700 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-700">
                 {busy ? 'Submitting…' : 'Participate'}
               </button>
             ) : employerStatus && employerStatus.registration_status !== 'approved' ? (
-              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-300">
                 Employer accreditation approval is required to participate in this activity.
               </p>
             ) : (
-              <p className="text-sm text-slate-500">This activity is not open for new participation.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">This activity is not open for new participation.</p>
             )}
           </div>
         )}
 
         {isPublicSide && (
           <div className="mt-4">
-            <button onClick={browseEmployers} disabled={busy} className="w-full rounded-lg bg-blue-700 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50">
+            <button onClick={browseEmployers} disabled={busy} className="w-full rounded-lg bg-blue-700 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-700">
               Browse Employers
             </button>
             {employers && (
               <div className="mt-3 space-y-2">
-                {employers.length === 0 && <p className="text-center text-xs text-slate-400">No participating employers yet.</p>}
+                {employers.length === 0 && <p className="text-center text-xs text-slate-400 dark:text-slate-500">No participating employers yet.</p>}
                 {employers.map(e => (
-                  <div key={e.employer_code} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3">
+                  <div key={e.employer_code} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700 dark:bg-slate-800/40">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-800">{e.company_name} {e.on_site && <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">ON SITE</span>}</p>
-                      <p className="text-xs text-slate-400">{e.industry || e.employer_code} · {e.vacancy_count} vacancies</p>
+                      <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{e.company_name} {e.on_site && <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300">ON SITE</span>}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-400">{e.industry || e.employer_code} · {e.vacancy_count} vacancies</p>
                     </div>
-                    <button onClick={() => navigate(`/events/${event.id}`)} className="flex-shrink-0 rounded-lg bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">View Jobs</button>
+                    <button onClick={() => navigate(`/events/${event.id}`)} className="flex-shrink-0 rounded-lg bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/70 dark:text-blue-300 dark:hover:bg-blue-900/70">View Jobs</button>
                   </div>
                 ))}
               </div>
@@ -462,60 +515,70 @@ function EventDetails({ event, role, profileId, onClose, navigateFn }) {
         {!isPublicSide && !isEmployer && !isAdmin && (
           <div className="mt-4 space-y-2">
             {myAssignment && (
-              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-300">
                 You are assigned to this activity as {myAssignment.assignment_role}.
               </p>
             )}
             {role === ROLES.STAFF && <button onClick={() => navigate('/staff/scanner')} className="w-full rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600">Check-In (Scanner)</button>}
-            {role === ROLES.SUPERVISOR && <button onClick={() => navigate('/supervisor')} className="w-full rounded-lg bg-slate-800 py-2.5 text-sm font-bold text-white hover:bg-slate-700">Monitor</button>}
-            {role === ROLES.MEDICAL && <button onClick={() => navigate('/medical/dashboard')} className="w-full rounded-lg bg-slate-800 py-2.5 text-sm font-bold text-white hover:bg-slate-700">Open Medical Workspace</button>}
-            {stats && <p className="text-center text-xs text-slate-400">{stats.jobseekers} jobseekers · {stats.checkedIn} checked in</p>}
+            {role === ROLES.SUPERVISOR && <button onClick={() => navigate('/supervisor')} className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-bold text-white hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600">Monitor</button>}
+            {role === ROLES.MEDICAL && <button onClick={() => navigate('/medical/dashboard')} className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-bold text-white hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600">Open Medical Workspace</button>}
+            {stats && <p className="text-center text-xs text-slate-400 dark:text-slate-500">{stats.jobseekers} jobseekers · {stats.checkedIn} checked in</p>}
           </div>
         )}
 
         {isAdmin && (
-          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
             <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => navigate('/admin/events')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit Activity</button>
-              <button onClick={() => navigate('/admin/registrants')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Participants</button>
-              <button onClick={() => navigate('/admin/reports')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Reports</button>
+              <button onClick={() => navigate('/admin/events')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800">Edit Activity</button>
+              <button onClick={() => navigate('/admin/registrants')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800">Participants</button>
+              <button onClick={() => navigate('/admin/reports')} className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800">Reports</button>
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Personnel Assignments</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Personnel Assignments</p>
               <div className="mt-2 space-y-1">
-                {assignments.length === 0 && <p className="text-xs text-slate-400">No personnel assigned yet.</p>}
+                {assignments.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">No personnel assigned yet.</p>}
                 {assignments.map(a => (
-                  <div key={a.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5 text-xs">
-                    <span><span className={`mr-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${a.assignment_role === 'supervisor' ? 'bg-purple-100 text-purple-700' : a.assignment_role === 'staff' ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700'}`}>{a.assignment_role}</span>{a.profiles?.full_name || 'User'}</span>
-                    <button onClick={() => removeAssignment(a.id)} className="text-[11px] font-semibold text-red-600 hover:underline">Remove</button>
+                  <div key={a.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 dark:text-slate-200">
+                    <span>
+                      <span className={`mr-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                        a.assignment_role === 'supervisor'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300'
+                          : a.assignment_role === 'staff'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300'
+                          : 'bg-teal-100 text-teal-700 dark:bg-teal-950/80 dark:text-teal-300'
+                      }`}>
+                        {a.assignment_role}
+                      </span>
+                      {a.profiles?.full_name || 'User'}
+                    </span>
+                    <button onClick={() => removeAssignment(a.id)} className="text-[11px] font-semibold text-red-600 hover:underline dark:text-red-400">Remove</button>
                   </div>
                 ))}
               </div>
               <div className="mt-2 flex gap-2">
-                <select value={pickRole} onChange={(e) => { setPickRole(e.target.value); setPickUser('') }} className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+                <select value={pickRole} onChange={(e) => { setPickRole(e.target.value); setPickUser('') }} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <option value="supervisor">Supervisor</option>
                   <option value="staff">Staff</option>
                   <option value="medical">Medical</option>
                 </select>
-                <select value={pickUser} onChange={(e) => setPickUser(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+                <select value={pickUser} onChange={(e) => setPickUser(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <option value="">Select person…</option>
                   {staffPool.filter(p => p.role === pickRole).map(p => <option key={p.id} value={p.id}>{p.full_name || p.id}</option>)}
                 </select>
-                <button onClick={addAssignment} disabled={!pickUser || busy} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50">Assign</button>
+                <button onClick={addAssignment} disabled={!pickUser || busy} className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-700">Assign</button>
               </div>
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 
 function Detail({ label, value }) {
   return (
-    <div className="flex gap-2">
-      <dt className="w-20 flex-shrink-0 font-medium text-slate-400">{label}</dt>
-      <dd className="min-w-0 break-words font-medium text-slate-700">{value || '—'}</dd>
+    <div className="flex gap-3">
+      <dt className="w-20 flex-shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className="min-w-0 break-words font-medium text-slate-800 dark:text-slate-200">{value || '—'}</dd>
     </div>
   )
 }

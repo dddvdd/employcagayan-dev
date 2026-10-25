@@ -1,10 +1,11 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { eventTypeDisplay } from '../../domain/eventTypes'
 import { applicationService } from '../../services/applicationService'
 import { eventService } from '../../services/eventService'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 const STATUS_OPTIONS = ['applied', 'shortlisted', 'rejected', 'withdrawn']
 const STATUS_LABELS = { applied: 'Applied', shortlisted: 'Shortlisted', rejected: 'Rejected', withdrawn: 'Withdrawn' }
@@ -18,6 +19,7 @@ const STATUS_COLORS = {
 export default function ApplicationTracking() {
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [eventFilter, setEventFilter] = useState('all')
@@ -33,6 +35,7 @@ export default function ApplicationTracking() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError('')
     try {
       const [appData, evData] = await Promise.all([
         applicationService.listForReports(),
@@ -41,7 +44,7 @@ export default function ApplicationTracking() {
       setApplications(appData || [])
       setEvents(evData || [])
     } catch (err) {
-      toast.error(`Failed to load applications: ${err.message}`)
+      setLoadError(err.message || 'Could not load application records.')
     } finally {
       setLoading(false)
     }
@@ -61,7 +64,7 @@ export default function ApplicationTracking() {
       )
     }
     if (statusFilter !== 'all') result = result.filter(a => a.application_status === statusFilter)
-    if (eventFilter !== 'all') result = result.filter(a => a.registrants?.event_id === eventFilter)
+    if (eventFilter !== 'all') result = result.filter(a => a.event_vacancies?.event_id === eventFilter)
     return result
   }, [applications, searchQuery, statusFilter, eventFilter])
 
@@ -74,6 +77,7 @@ export default function ApplicationTracking() {
   function openEditStatus(app) {
     setEditingApp(app)
     setFormData({ application_status: app.application_status, notes: app.notes || '' })
+    setShowModal(true)
   }
 
   async function saveStatus() {
@@ -106,7 +110,7 @@ export default function ApplicationTracking() {
       'Applied At': a.applied_at ? format(new Date(a.applied_at), 'MMM d, yyyy HH:mm') : '',
       'Notes': a.notes || '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -119,24 +123,26 @@ export default function ApplicationTracking() {
 
   const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
 
-  if (loading) return <div className="grid min-h-[400px] place-items-center text-slate-500">Loading...</div>
+  if (loading) return <div className="grid min-h-[400px] place-items-center text-sm text-slate-500" role="status">Loading applications…</div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Application Tracking</h1>
-          <p className="text-sm text-slate-600">{filteredApplications.length} application(s)</p>
+          <p aria-live="polite" className="text-sm text-slate-600">{filteredApplications.length} of {applications.length} applications</p>
         </div>
-        <button onClick={exportCSV} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Export CSV</button>
+        <button type="button" onClick={exportCSV} disabled={!filteredApplications.length} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Export CSV</button>
       </div>
 
       {/* Status Summary Cards */}
-      <div className="grid gap-3 sm:grid-cols-5">
+      <div role="group" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-label="Filter applications by status">
         {['all', ...STATUS_OPTIONS].map(status => (
-          <button
+            <button
+              type="button"
             key={status}
             onClick={() => setStatusFilter(status)}
+            aria-pressed={statusFilter === status}
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
               statusFilter === status
                 ? 'bg-blue-700 text-white'
@@ -149,18 +155,20 @@ export default function ApplicationTracking() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3">
+      <div role="group" className="flex flex-col gap-3 sm:flex-row" aria-label="Application filters">
         <input
           type="text"
+          aria-label="Search applications"
           placeholder="Search by name, ID, email, company, position..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full max-w-none flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none sm:max-w-sm"
         />
         <select
+          aria-label="Filter by event"
           value={eventFilter}
           onChange={(e) => setEventFilter(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none sm:w-auto"
         >
           <option value="all">All Events</option>
           {events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name} — {eventTypeDisplay(ev)}</option>)}
@@ -168,7 +176,13 @@ export default function ApplicationTracking() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+      {loadError ? (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+          <p className="font-semibold">Applications could not be loaded.</p>
+          <p className="mt-1">{loadError}</p>
+          <button type="button" onClick={loadData} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 font-semibold text-white hover:bg-blue-800">Try again</button>
+        </div>
+      ) : <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -203,40 +217,40 @@ export default function ApplicationTracking() {
               </tr>
             ))}
             {filteredApplications.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No applications found</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                {applications.length === 0 ? 'No applications have been recorded yet.' : <div className="space-y-2"><p>No applications match these filters.</p><button type="button" onClick={() => { setSearchQuery(''); setStatusFilter('all'); setEventFilter('all') }} className="min-h-11 rounded-lg px-3 font-semibold text-blue-700 underline underline-offset-2">Clear filters</button></div>}
+              </td></tr>
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       {/* Edit Modal */}
       {showModal && editingApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModal(false)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-4">Update Application Status</h2>
+        <AccessibleDialog open onClose={() => setShowModal(false)} closeDisabled={submitting} labelledBy="application-status-title" className="max-w-md">
+            <h2 id="application-status-title" className="mb-4 text-lg font-bold text-slate-900">Update Application Status</h2>
             <p className="text-sm text-slate-600 mb-4">
               {[editingApp.registrants?.first_name, editingApp.registrants?.middle_name, editingApp.registrants?.last_name].filter(Boolean).join(' ')} — {editingApp.event_vacancies?.vacancy_definitions?.company_name}
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700">Status</label>
-                <select className={inputCls} value={formData.application_status} onChange={(e) => setFormData({ ...formData, application_status: e.target.value })}>
-                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                <label htmlFor="application-status" className="block text-sm font-medium text-slate-700">Status</label>
+                <select id="application-status" className={inputCls} value={formData.application_status} onChange={(e) => setFormData({ ...formData, application_status: e.target.value })}>
+                  {STATUS_OPTIONS.filter(s => s === editingApp.application_status || editingApp.application_status === 'applied' || (editingApp.application_status === 'shortlisted' && ['rejected', 'withdrawn'].includes(s))).map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Notes</label>
-                <textarea className={inputCls} rows={3} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
+                <label htmlFor="application-notes" className="block text-sm font-medium text-slate-700">Notes</label>
+                <textarea id="application-notes" className={inputCls} rows={3} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowModal(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={() => setShowModal(false)} disabled={submitting} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                 <button onClick={saveStatus} disabled={submitting} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
                   {submitting ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

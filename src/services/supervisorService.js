@@ -69,7 +69,7 @@ export async function fetchOverviewCard({ card, selectedEvent, visibleEventIds }
       .order('interview_date', { ascending: false })
     q = eventFilter(q)
     if (card.filterKey) q = q.eq(card.filterKey, card.filterValue)
-    return unwrap(q, 'Could not load interviews')
+    return unwrap(await q, 'Could not load interviews')
   }
   if (card.table === 'referrals') {
     let q = supabase
@@ -79,7 +79,7 @@ export async function fetchOverviewCard({ card, selectedEvent, visibleEventIds }
       .order('created_at', { ascending: false })
     q = eventFilter(q)
     if (card.filterKey) q = q.eq(card.filterKey, card.filterValue)
-    return unwrap(q, 'Could not load referrals')
+    return unwrap(await q, 'Could not load referrals')
   }
   // Default: registrants table
   let q = supabase
@@ -91,7 +91,7 @@ export async function fetchOverviewCard({ card, selectedEvent, visibleEventIds }
     .order('last_name', { ascending: true })
   q = eventFilter(q)
   if (card.filterKey) q = q.eq(card.filterKey, card.filterValue)
-  return unwrap(q, 'Could not load registrants')
+  return unwrap(await q, 'Could not load registrants')
 }
 
 // One-shot fetch of all supervisor-scoped report data, in one place.

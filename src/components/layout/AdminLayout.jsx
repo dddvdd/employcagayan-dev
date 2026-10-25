@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import ThemeToggle from '../ThemeToggle'
@@ -17,6 +17,8 @@ const adminNavItems = [
   { to: '/admin/events', label: 'Events', icon: 'calendar' },
   { to: '/admin/vacancies', label: 'Vacancies', icon: 'briefcase' },
   { to: '/admin/review', label: 'AI Review', icon: 'review' },
+  { to: '/admin/occupation-skills', label: 'Occupation skills', icon: 'review', adminOnly:true },
+  { to: '/admin/skill-relationships', label: 'Skill relationships', icon: 'review', adminOnly:true },
   { to: '/admin/interviews', label: 'Interviews', icon: 'bubble' },
   { to: '/admin/applications', label: 'Applications', icon: 'doc' },
   { to: '/admin/outcomes', label: 'Outcomes', icon: 'flag' },
@@ -138,27 +140,15 @@ function PixIcon({ name }) {
   )
 }
 
-// 16-bit mecha stripe — segmented red/blue/yellow divider. Admin identity
-// decoration only; purely decorative and hidden from assistive tech.
+// Small neutral divider used by each portal shell.
 function GundamStripe() {
-  return (
-    <div aria-hidden className="flex h-1 shrink-0">
-      {[...Array(30)].map((_, i) => (
-        <span key={i} className={`flex-1 ${i % 3 === 0 ? 'bg-role-admin' : i % 3 === 1 ? 'bg-blue-600' : 'bg-yellow-400'}`} />
-      ))}
-    </div>
-  )
+  return <div aria-hidden className="h-px shrink-0 bg-slate-200 dark:bg-slate-800" />
 }
 
-// Shared nav renderer — labels shown in the drawer and expanded sidebar,
-// icon tiles in the collapsed rail.
-// Active state: violet Employer tile vs Admin's high-contrast command tile
-// (white surface, heavy outline, red bar + red glyph, yellow corner tick).
-function NavList({ items, showLabels, isEmployer }) {
-  const activeTile = isEmployer
-    ? 'border-slate-900 bg-role-employer/15 text-violet-800 pixel-shadow-sm'
-    : 'border-slate-900 bg-white text-slate-900 pixel-shadow-sm'
-  const idle = 'border-transparent text-slate-600 hover:bg-slate-100'
+// Shared nav renderer for both expanded and compact portal navigation.
+function NavList({ items, showLabels, isEmployer, onNavigate }) {
+  const activeTile = 'border-blue-100 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/60 dark:text-blue-200'
+  const idle = 'border-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
   return (
     <nav className="space-y-1 px-2" aria-label={isEmployer ? 'Employer portal' : 'Admin portal'}>
       {items.map(item => (
@@ -167,25 +157,16 @@ function NavList({ items, showLabels, isEmployer }) {
           to={item.to}
           end={item.to === '/employer/dashboard' || item.to === '/admin/dashboard'}
           title={item.label}
+          onClick={onNavigate}
           className={({ isActive }) =>
-            `relative flex min-h-[44px] items-center gap-3 rounded-lg border-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 ${
+            `relative flex min-h-[44px] items-center gap-3 rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 ${
               showLabels ? '' : 'justify-center border-transparent px-0'
-            } ${isActive ? (isEmployer ? `${activeTile} focus-visible:ring-violet-300` : `${activeTile} focus-visible:ring-blue-300`) : `${idle} focus-visible:ring-blue-300`}`
+            } ${isActive ? `${activeTile} focus-visible:ring-blue-300` : `${idle} focus-visible:ring-blue-300`}`
           }
         >
           {({ isActive }) => (
             <>
-              {/* Admin command accents: red spine, yellow corner tick */}
-              {isActive && isEmployer && showLabels && (
-                <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-1 rounded-full bg-role-employer" />
-              )}
-              {isActive && !isEmployer && showLabels && (
-                <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-1 rounded-full bg-role-admin" />
-              )}
-              {isActive && !isEmployer && (
-                <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 bg-yellow-400" />
-              )}
-              <span className={isActive && !isEmployer ? 'text-role-admin' : undefined}>
+              <span className={isActive ? 'text-blue-700 dark:text-blue-300' : undefined}>
                 <PixIcon name={item.icon} />
               </span>
               {showLabels && <span className="truncate">{item.label}</span>}
@@ -202,34 +183,55 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)   // desktop sidebar (click-toggled)
   const [mobileOpen, setMobileOpen] = useState(false) // mobile drawer
+  const mobileDrawerRef = useRef(null)
 
   const isEmployer = profile?.role === 'employer'
-  const navItems = isEmployer ? employerNavItems : adminNavItems
+  const navItems = isEmployer ? employerNavItems : adminNavItems.filter(item=>!item.adminOnly||profile?.role==='admin')
   const portalName = isEmployer ? 'Employer Portal' : 'Admin Portal'
   const homeLink = isEmployer ? '/employer/dashboard' : '/admin/dashboard'
   const displayName = isEmployer ? (profile?.full_name || 'Employer') : (profile?.full_name || 'Admin')
-  // Role-tinted focus rings: violet for Employer, technical blue for Admin.
-  const FOCUS_RING = isEmployer ? 'focus-visible:ring-violet-300' : 'focus-visible:ring-blue-300'
+  const FOCUS_RING = 'focus-visible:ring-blue-300'
 
   const handleSignOut = useCallback(async () => {
     await signOut()
     navigate('/login')
   }, [signOut, navigate])
 
-  // Brand tile — Employer keeps its violet mark; Admin gets the mecha
-  // command emblem: near-black shield with a mechanical yellow briefcase.
-  const brandTile = (
-    <span aria-hidden className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-slate-900 ${isEmployer ? 'bg-role-employer/15 text-role-employer' : 'bg-slate-900 text-yellow-400'} ${expanded ? '' : 'pixel-shadow-sm'}`}>
-      <PixelBriefcase className="h-4 w-4" />
-    </span>
-  )
+  useEffect(() => {
+    if (!mobileOpen) return undefined
+    const previousFocus = document.activeElement
+    const drawer = mobileDrawerRef.current
+    const focusable = () => [...(drawer?.querySelectorAll('a[href], button:not(:disabled)') || [])]
+    focusable()[0]?.focus()
+    function keepFocusInDrawer(event) {
+      if (event.key === 'Escape') {
+        setMobileOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', keepFocusInDrawer)
+    return () => {
+      window.removeEventListener('keydown', keepFocusInDrawer)
+      previousFocus?.focus?.()
+    }
+  }, [mobileOpen])
 
-  // Command status lights — tiny mechanical indicators (Admin only).
-  const statusLights = !isEmployer && (
-    <span aria-hidden className="ml-auto flex shrink-0 items-center gap-1 pr-1">
-      <span className="h-1.5 w-1.5 bg-role-admin" />
-      <span className="h-1.5 w-1.5 bg-blue-600" />
-      <span className="h-1.5 w-1.5 bg-yellow-400" />
+  // Shared employment-services brand mark.
+  const brandTile = (
+    <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
+      <PixelBriefcase className="h-4 w-4" />
     </span>
   )
 
@@ -237,7 +239,7 @@ export default function AdminLayout() {
     <div className={`relative min-h-screen bg-slate-50 ${isEmployer ? 'theme-employer' : ''}`}>
       {/* ---------- Desktop sidebar (md+) : explicit toggle, no hover dependency ---------- */}
       <aside
-        className="fixed left-0 top-0 z-40 hidden h-screen flex-col overflow-hidden border-r-2 border-slate-900 bg-white transition-all duration-200 ease-out md:flex"
+        className="fixed left-0 top-0 z-40 hidden h-screen flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-200 ease-out dark:border-slate-800 dark:bg-slate-950 md:flex"
         style={{ width: expanded ? SIDEBAR_WIDTH : RAIL_WIDTH }}
         aria-label={`${portalName} navigation`}
       >
@@ -262,7 +264,6 @@ export default function AdminLayout() {
             <Link to={homeLink} className={`flex min-w-0 items-center gap-2 rounded-lg focus-visible:outline-none ${FOCUS_RING} focus-visible:ring-4`}>
               {brandTile}
               <span className="truncate text-sm font-bold text-slate-800">{portalName}</span>
-              {statusLights}
             </Link>
           )}
         </div>
@@ -272,6 +273,10 @@ export default function AdminLayout() {
         </div>
 
         {!isEmployer && <GundamStripe />}
+        <div className={`flex shrink-0 items-center border-t border-slate-100 p-2 dark:border-slate-800 ${expanded ? 'justify-between' : 'justify-center'}`}>
+          {expanded && <span className="pl-2 text-xs font-medium text-slate-500 dark:text-slate-400">Appearance</span>}
+          <ThemeToggle />
+        </div>
         <div className="shrink-0 p-2">
           <button
             type="button"
@@ -279,7 +284,7 @@ export default function AdminLayout() {
             title="Sign Out"
             className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-slate-100 focus-visible:outline-none ${FOCUS_RING} focus-visible:ring-4 ${expanded ? '' : 'justify-center'}`}
           >
-            <span aria-hidden className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-2 border-slate-900 text-xs font-black text-white ${isEmployer ? 'bg-role-employer' : 'bg-slate-700'}`}>
+            <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-200">
               {displayName.charAt(0).toUpperCase()}
             </span>
             {expanded && (
@@ -293,7 +298,7 @@ export default function AdminLayout() {
       </aside>
 
       {/* ---------- Mobile top bar (<md) ---------- */}
-      <header className="sticky top-0 z-40 border-b-2 border-slate-900 bg-white md:hidden">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 md:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3">
           <Link to={homeLink} className={`flex min-w-0 items-center gap-2 rounded-lg focus-visible:outline-none ${FOCUS_RING} focus-visible:ring-4`}>
             {brandTile}
@@ -322,8 +327,8 @@ export default function AdminLayout() {
       {/* ---------- Mobile drawer ---------- */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
-          <div className="absolute inset-0 bg-slate-950/60" onClick={() => setMobileOpen(false)} />
-          <div className="relative flex h-full w-72 max-w-[80vw] flex-col border-r-2 border-slate-900 bg-white">
+          <button type="button" aria-label="Close navigation menu" className="absolute inset-0 h-full w-full rounded-none bg-slate-950/60" onClick={() => setMobileOpen(false)} />
+          <div ref={mobileDrawerRef} data-mobile-navigation className="relative flex h-full w-72 max-w-[80vw] flex-col border-r-2 border-slate-900 bg-white dark:border-slate-800 dark:bg-slate-950">
             {!isEmployer && <GundamStripe />}
             <div className="flex h-16 shrink-0 items-center justify-between gap-3 px-3">
               <span className="flex min-w-0 items-center gap-2">
@@ -342,7 +347,7 @@ export default function AdminLayout() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto py-2">
-              <NavList items={navItems} showLabels isEmployer={isEmployer} />
+              <NavList items={navItems} showLabels isEmployer={isEmployer} onNavigate={() => setMobileOpen(false)} />
             </div>
             <div className="shrink-0 space-y-2 p-3">
               <div className="flex items-center gap-2">

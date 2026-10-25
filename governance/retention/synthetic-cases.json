@@ -1,0 +1,181 @@
+{
+  "version": "retention-preview-v1",
+  "purpose": "synthetic_only",
+  "as_of": "2026-10-15T00:00:00.000Z",
+  "records": [
+    {
+      "alias": "s-inactive-profile",
+      "category": "profile",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "meaningful_service_at": "2023-10-15T00:00:00.000Z"
+    },
+    {
+      "alias": "s-closed-case",
+      "category": "case",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [
+        "s-case-qualification",
+        "s-held-resume"
+      ],
+      "holds": [
+        {
+          "alias": "s-complaint-hold",
+          "status": "active"
+        }
+      ],
+      "case_status": "closed",
+      "closed_at": "2020-10-15T00:00:00.000Z"
+    },
+    {
+      "alias": "s-case-qualification",
+      "category": "qualification",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-held-resume",
+      "category": "resume",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "referenced": false,
+      "unreferenced_at": "2020-11-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-open-case",
+      "category": "case",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [
+        "s-open-profile"
+      ],
+      "holds": [],
+      "case_status": "open"
+    },
+    {
+      "alias": "s-open-profile",
+      "category": "profile",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "meaningful_service_at": "2019-01-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-reviewed-ai",
+      "category": "ai_working",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "reviewed_at": "2026-09-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-abandoned-ai",
+      "category": "ai_pending",
+      "state": "active",
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-unknown-clock",
+      "category": "profile",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-claimed-approved",
+      "category": "audit",
+      "state": "approved_for_disposition",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "case_status": "closed",
+      "closed_at": "2020-01-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-orphan-embedding",
+      "category": "embedding",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [
+        "s-missing-source"
+      ],
+      "holds": []
+    },
+    {
+      "alias": "s-backup",
+      "category": "backup",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-export",
+      "category": "export",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-current-resume",
+      "category": "resume",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [
+        "s-inactive-profile"
+      ],
+      "holds": [],
+      "referenced": true
+    },
+    {
+      "alias": "s-event-log",
+      "category": "security_log",
+      "state": "active",
+      "created_at": "2025-10-15T00:00:00.000Z",
+      "linked_records": [],
+      "holds": []
+    },
+    {
+      "alias": "s-recent-confirmation",
+      "category": "profile",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "meaningful_service_at": "2019-01-01T00:00:00.000Z",
+      "profile_confirmed_at": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-archived-profile",
+      "category": "profile",
+      "state": "restricted",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [],
+      "holds": [],
+      "meaningful_service_at": "2019-01-01T00:00:00.000Z"
+    },
+    {
+      "alias": "s-stale-derived",
+      "category": "embedding",
+      "state": "active",
+      "created_at": "2018-01-01T00:00:00.000Z",
+      "linked_records": [
+        "s-archived-profile"
+      ],
+      "holds": []
+    }
+  ]
+}

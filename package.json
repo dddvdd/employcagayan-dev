@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint src",
-    "preview": "vite preview"
+    "test": "node --test tests/unit/*.test.js",
+    "test:browser": "playwright test",
+    "preview": "vite preview",
+    "evaluate:matching": "node scripts/evaluate-matching.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

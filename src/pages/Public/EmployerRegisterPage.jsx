@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
 import { toast } from 'sonner'
 import { authService } from '../../services/authService'
 import { INDUSTRY_OPTIONS, normalizeContactInput, contactMaxLen } from '../../lib/registerOptions'
-import usePhAddress from '../../lib/usePhAddress'
+import useEmployerAddresses from '../../hooks/employer/useEmployerAddresses'
 import { PixelStar, PixelBriefcase, PixelArrow } from '../../components/public/pixel'
 import ThemeToggle from '../../components/ThemeToggle'
 
-const input = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100'
+const input = 'mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none placeholder:text-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-violet-950'
 
 export default function EmployerRegisterPage() {
+  const { user, loading: accountLoading } = useAuth()
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [showPasswords, setShowPasswords] = useState(false)
@@ -52,49 +55,19 @@ export default function EmployerRegisterPage() {
   const pwEntered = password.length > 0
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword
 
-  const ph = usePhAddress()
+  const { company: ph, branch: branchPh } = useEmployerAddresses(watch, setValue)
   const cleanContact = (watch('contact_number') || '').replace(/\D/g, '')
   const maxLen = contactMaxLen(cleanContact)
-
-  useEffect(() => {
-    if (province) {
-      setValue('municipality_city', '')
-      setValue('barangay', '')
-      ph.loadMunicipalities(province)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [province])
-
-  useEffect(() => {
-    if (municipality) {
-      setValue('barangay', '')
-      ph.loadBarangays(municipality)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [municipality])
-
-  useEffect(() => {
-    if (branchProvince) {
-      setValue('branch_municipality_city', '')
-      setValue('branch_barangay', '')
-      ph.loadMunicipalities(branchProvince)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchProvince])
-
-  useEffect(() => {
-    if (branchMunicipality) {
-      setValue('branch_barangay', '')
-      ph.loadBarangays(branchMunicipality)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchMunicipality])
 
   async function onSubmit(values) {
     // Submission-level validation (defense in depth beyond field rules).
     if (!values.password || values.password.length < 6) { toast.error('Password must be at least 6 characters.'); return }
     if (!values.confirm_password) { toast.error('Please confirm your password.'); return }
     if (values.password !== values.confirm_password) { toast.error('Passwords do not match.'); return }
+
+    const companyAddress = ph.validate(values)
+    const branchAddress = hasCagayanBranch ? branchPh.validate(values) : { ok: true }
+    if (!companyAddress.ok || !branchAddress.ok) { toast.error('Select a consistent province, city and barangay for each address.'); return }
 
     setSubmitting(true)
 
@@ -110,7 +83,6 @@ try {
         email: values.email,
         password: values.password,
         fullName: values.contact_person,
-        role: 'employer',
       })
 
       const { password: _password, confirm_password: _confirm_password, ...companyData } = values
@@ -125,15 +97,18 @@ try {
     }
   }
 
+  if (accountLoading) return <PageLoadingState>Loading your account…</PageLoadingState>
+  if (user) return <Navigate to="/register-employer/complete" replace />
   if (done) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
-        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+      <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-violet-100">
             <span className="text-2xl">📧</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Confirm Your Email</h1>
-          <p className="mt-3 text-sm text-slate-600">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Confirm Your Email</h1>
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
             Registration created. Please confirm your email, then log in to complete your employer registration.
           </p>
           <Link to="/login" className="mt-6 inline-block rounded-lg bg-violet-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-800">
@@ -145,14 +120,14 @@ try {
   }
 
   return (
-    <div className="theme-employer min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="theme-employer min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-700 text-white">
               <PixelBriefcase className="h-4 w-4" />
             </span>
-            <span className="text-base font-bold tracking-tight text-slate-900">Trabaho Caravan</span>
+            <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">Trabaho Caravan</span>
           </Link>
           <div className="flex items-center gap-3">
             <ThemeToggle />
@@ -168,12 +143,12 @@ try {
           <PixelStar className="h-2.5 w-2.5 text-amber-500" />
           Employer Registration
         </p>
-        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900">Register Your Company</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Register Your Company</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           Register your company to participate in job fairs. Only local employers and agencies are accepted.
         </p>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-6 space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8">
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-6 space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-8">
           <Field label="Company Name *" error={errors.company_name}>
             <input {...register('company_name', { required: 'Please enter your company name.' })} className={input} placeholder="Jollibee Foods Corporation" />
           </Field>
@@ -181,18 +156,18 @@ try {
           <div>
             <label className="block text-sm font-medium text-slate-700">Employer Type *</label>
             <div className="mt-1 space-y-2">
-              <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer">
+              <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
                 <input type="radio" value="local_direct" {...register('employer_type')} className="h-4 w-4 text-violet-600" />
                 <div>
-                  <span className="text-sm font-medium text-slate-900">Direct Employer</span>
-                  <p className="text-xs text-slate-500">You are hiring directly for your own company</p>
+                  <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Direct Employer</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">You are hiring directly for your own company</p>
                 </div>
               </label>
-              <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer">
+              <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
                 <input type="radio" value="local_agency" {...register('employer_type')} className="h-4 w-4 text-violet-600" />
                 <div>
-                  <span className="text-sm font-medium text-slate-900">Recruitment Agency / HR / Third Party</span>
-                  <p className="text-xs text-slate-500">You recruit on behalf of other companies (principals)</p>
+                  <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Recruitment Agency / HR / Third Party</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">You recruit on behalf of other companies (principals)</p>
                 </div>
               </label>
             </div>
@@ -252,13 +227,13 @@ try {
                 </Field>
               </div>
               <Field label="Province *" error={errors.province}>
-                <select {...register('province', { required: 'Please select a province.' })} className={input}>
+                <select {...register('province', { required: 'Please select a province.', onChange: ph.onProvinceChange })} className={input}>
                   <option value="">Select province</option>
                   {ph.provinces.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
                 </select>
               </Field>
               <Field label="Municipality / City *" error={errors.municipality_city}>
-                <select {...register('municipality_city', { required: 'Please select a municipality / city.' })} disabled={!province} className={input}>
+                <select {...register('municipality_city', { required: 'Please select a municipality / city.', onChange: ph.onMunicipalityChange })} disabled={!province} className={input}>
                   <option value="">{province ? 'Select municipality / city' : 'Select a province first'}</option>
                   {ph.municipalities.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
                 </select>
@@ -286,21 +261,21 @@ try {
                   </Field>
                 </div>
                 <Field label="Branch Province">
-                  <select {...register('branch_province')} className={input}>
+                  <select {...register('branch_province', { onChange: branchPh.onProvinceChange })} className={input}>
                     <option value="">Select province</option>
-                    {ph.provinces.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+                    {branchPh.provinces.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
                   </select>
                 </Field>
                 <Field label="Branch Municipality / City">
-                  <select {...register('branch_municipality_city')} disabled={!branchProvince} className={input}>
+                  <select {...register('branch_municipality_city', { onChange: branchPh.onMunicipalityChange })} disabled={!branchProvince} className={input}>
                     <option value="">{branchProvince ? 'Select municipality / city' : 'Select a province first'}</option>
-                    {ph.municipalities.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+                    {branchPh.municipalities.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
                   </select>
                 </Field>
                 <Field label="Branch Barangay">
                   <select {...register('branch_barangay')} disabled={!branchMunicipality} className={input}>
                     <option value="">{branchMunicipality ? 'Select barangay' : 'Select a municipality / city first'}</option>
-                    {ph.barangays.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+                    {branchPh.barangays.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
                   </select>
                 </Field>
               </div>
@@ -376,4 +351,3 @@ function Field({ label, error, children }) {
     </label>
   )
 }
-

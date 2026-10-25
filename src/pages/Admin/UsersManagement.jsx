@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import AccessibleDialog from '../../components/ui/AccessibleDialog'
 import { toast } from 'sonner'
 import { adminService } from '../../services/adminService'
 import { profileService } from '../../services/profileService'
 import { format } from 'date-fns'
+import { useAuth } from '../../contexts/AuthContext'
+import { credentialPasswordError } from '../../domain/credentialPolicy'
 
 const CAGAYAN_MUNICIPALITIES = [
   'Tuguegarao City',
@@ -40,14 +43,17 @@ const STAFF_ROLES = ['staff', 'supervisor', 'medical', 'admin']
 const ROLE_LABELS = { staff: 'Staff', supervisor: 'Supervisor', medical: 'Medical', admin: 'Admin' }
 
 export default function UsersManagement() {
+  const { user: currentUser, signOut } = useAuth()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [actionId, setActionId] = useState(null)
 
   // Modals
   const [createOpen, setCreateOpen] = useState(false)
   const [editUser, setEditUser] = useState(null)
   const [resetUser, setResetUser] = useState(null)
+  const [deactivateUser, setDeactivateUser] = useState(null)
 
   // Create form
   const [createForm, setCreateForm] = useState({ full_name: '', email: '', password: '', role: 'staff', jurisdiction: '', is_provincial: false })
@@ -62,17 +68,19 @@ export default function UsersManagement() {
   const [resetting, setResetting] = useState(false)
 
   useEffect(() => {
-    loadUsers()
+    loadUsers(true)
   }, [])
 
-  async function loadUsers() {
+  async function loadUsers(showLoading = false) {
+    if (showLoading) setLoading(true)
+    setLoadError('')
     try {
       const rows = await profileService.listStaff(STAFF_ROLES)
       setUsers(rows || [])
     } catch (err) {
-      toast.error(`Failed to load users: ${err.message}`)
+      setLoadError(err.message || 'Failed to load users.')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }
 
@@ -87,6 +95,8 @@ export default function UsersManagement() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    const passwordError = credentialPasswordError(createForm.password)
+    if (passwordError) { toast.error(passwordError); return }
     setCreating(true)
     try {
       await adminService.createUser({
@@ -104,7 +114,7 @@ export default function UsersManagement() {
     } catch (err) {
       const msg = err?.message || ''
       if (msg.includes('schema cache') || msg.includes('Could not find the function')) {
-        toast.error('Create failed: Run supabase/admin_rpc.sql in Supabase SQL Editor first — the admin_create_user function is not installed yet.')
+        toast.error('Account setup is temporarily unavailable. Ask your system administrator to check the service.')
       } else {
         toast.error(`Create failed: ${msg}`)
       }
@@ -121,7 +131,7 @@ export default function UsersManagement() {
   async function saveEdit() {
     setSavingEdit(true)
     try {
-      await profileService.updateSelf(editUser.id, {
+      await profileService.updateStaff(editUser, {
         full_name: editForm.full_name,
         role: editForm.role,
         jurisdiction: editForm.role === 'supervisor' ? editForm.jurisdiction : null,
@@ -140,9 +150,10 @@ export default function UsersManagement() {
   async function toggleActive(user) {
     setActionId(user.id)
     try {
-      await profileService.updateSelf(user.id, { is_active: !user.is_active })
-      toast.success(user.is_active ? 'User deactivated' : 'User activated')
-      await loadUsers()
+      const updated = await profileService.updateStaff(user, { is_active: !user.is_active })
+      setUsers(current => current.map(item => item.id === user.id ? { ...item, ...updated } : item))
+      toast.success(updated.is_active ? 'User activated' : 'User deactivated')
+      setDeactivateUser(null)
     } catch (err) {
       toast.error(`Update failed: ${err.message}`)
     } finally {
@@ -152,16 +163,22 @@ export default function UsersManagement() {
 
   async function handleResetPassword(e) {
     e.preventDefault()
+    const passwordError = credentialPasswordError(resetPassword)
+    if (passwordError) { toast.error(passwordError); return }
     setResetting(true)
     try {
       await adminService.resetPassword(resetUser.id, resetPassword)
-      toast.success('Password reset successfully!')
+      const resetOwnAccount = resetUser.id === currentUser?.id
+      toast.success(resetOwnAccount ? 'Password changed. Please sign in again.' : 'Password changed. Previous sessions have ended; authenticator verification is still required.')
       setResetUser(null)
       setResetPassword('')
+      if (resetOwnAccount) {
+        try { await signOut() } catch { toast.error('Your password changed. Please sign in again to continue.') }
+      }
     } catch (err) {
       const msg = err?.message || ''
       if (msg.includes('schema cache') || msg.includes('Could not find the function')) {
-        toast.error('Reset failed: Run supabase/admin_rpc.sql in Supabase SQL Editor first — the admin_reset_password function is not installed yet.')
+        toast.error('Password changes are temporarily unavailable. Ask your system administrator to check the service.')
       } else {
         toast.error(`Reset failed: ${msg}`)
       }
@@ -173,6 +190,8 @@ export default function UsersManagement() {
   const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white focus:border-blue-500 focus:outline-none'
 
   if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500">Loading users...</div>
+
+  if (loadError) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">User list unavailable</h1><p className="mt-2 text-sm">{loadError}</p><button type="button" onClick={() => loadUsers(true)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">
@@ -239,9 +258,9 @@ export default function UsersManagement() {
                       <button onClick={() => openEdit(user)} className="rounded-lg bg-blue-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-800">Edit</button>
                       <button onClick={() => setResetUser(user)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Reset PW</button>
                       <button
-                        onClick={() => toggleActive(user)}
+                        onClick={() => user.is_active ? setDeactivateUser(user) : toggleActive(user)}
                         disabled={actionId === user.id}
-                        className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                        className={`min-h-11 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 ${user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                       >
                         {actionId === user.id ? '...' : user.is_active ? 'Deactivate' : 'Activate'}
                       </button>
@@ -257,12 +276,12 @@ export default function UsersManagement() {
 
       {/* Create User Modal */}
       {createOpen && (
-        <Modal onClose={() => setCreateOpen(false)} title="Create Staff Account">
+        <Modal onClose={() => { setCreateOpen(false); setCreateForm(current => ({ ...current, password: '' })) }} closeDisabled={creating} title="Create Staff Account">
           <form onSubmit={handleCreate} className="space-y-4">
             <Field label="Full name"><input required className={inputCls} value={createForm.full_name} onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })} /></Field>
             <Field label="Email"><input required type="email" className={inputCls} value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} /></Field>
-            <Field label="Password (min 6 characters)">
-              <PasswordInput required value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} className={inputCls} />
+            <Field label="Password (min 8 characters)">
+              <PasswordInput required minLength={8} maxLength={72} value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} className={inputCls} />
             </Field>
             <Field label="Role">
               <select className={inputCls} value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}>
@@ -294,7 +313,7 @@ export default function UsersManagement() {
               </>
             )}
             <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-              The new user will sign in with email + password on the staff login form.
+              The new user signs in through Partner login and verifies an authenticator before protected access.
             </div>
             <button disabled={creating} className="w-full rounded-lg bg-blue-700 py-2.5 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
               {creating ? 'Creating...' : 'Create User'}
@@ -346,15 +365,24 @@ export default function UsersManagement() {
 
       {/* Reset Password Modal */}
       {resetUser && (
-        <Modal onClose={() => setResetUser(null)} title={`Reset Password — ${resetUser.email}`}>
+        <Modal onClose={() => { setResetUser(null); setResetPassword('') }} closeDisabled={resetting} title={`Reset Password — ${resetUser.email}`}>
           <form onSubmit={handleResetPassword} className="space-y-4">
-            <Field label="New password (min 6 characters)">
-              <PasswordInput required value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} className={inputCls} autoFocus />
+            <Field label="New password (min 8 characters)">
+              <PasswordInput required minLength={8} maxLength={72} value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} className={inputCls} autoFocus />
             </Field>
             <button disabled={resetting} className="w-full rounded-lg bg-blue-700 py-2.5 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
               {resetting ? 'Resetting...' : 'Reset Password'}
             </button>
           </form>
+        </Modal>
+      )}
+      {deactivateUser && (
+        <Modal onClose={() => setDeactivateUser(null)} closeDisabled={actionId === deactivateUser.id} title="Deactivate User">
+          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Deactivate <strong>{deactivateUser.full_name || deactivateUser.email}</strong>? This account will no longer be able to sign in until an administrator activates it again.</p>
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" disabled={actionId === deactivateUser.id} onClick={() => setDeactivateUser(null)} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Keep active</button>
+            <button type="button" disabled={actionId === deactivateUser.id} onClick={() => toggleActive(deactivateUser)} className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50">{actionId === deactivateUser.id ? 'Deactivating…' : 'Deactivate account'}</button>
+          </div>
         </Modal>
       )}
     </div>
@@ -370,17 +398,16 @@ function SummaryCard({ label, value, color }) {
   )
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, closeDisabled = false }) {
+  const titleId = `dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={closeDisabled} labelledBy={titleId} className="max-w-md">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-xl leading-none text-slate-400 hover:text-slate-600">×</button>
+          <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" disabled={closeDisabled} aria-label={`Close ${title}`} onClick={onClose} className="grid h-11 w-11 place-items-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 
@@ -407,7 +434,6 @@ function PasswordInput({ value, onChange, className = '', ...props }) {
       <button
         type="button"
         onClick={() => setVisible(v => !v)}
-        tabIndex={-1}
         aria-label={visible ? 'Hide password' : 'Show password'}
         className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-400 hover:text-slate-600"
       >

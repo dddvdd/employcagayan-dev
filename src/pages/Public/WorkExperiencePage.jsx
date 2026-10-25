@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { PixelArrow, PixelBriefcase } from '../../components/public/pixel'
-import ThemeToggle from '../../components/ThemeToggle'
+import { PixelBriefcase } from '../../components/public/pixel'
+import JobseekerRecordHeader from '../../components/jobseeker/JobseekerRecordHeader.jsx'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
+import ConfirmActionDialog from '../../components/ui/ConfirmActionDialog.jsx'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
+import ThemeToggle from '../../components/ThemeToggle.jsx'
 import { workExperienceService } from '../../services/workExperienceService'
 import { participantService } from '../../services/participantService'
 import { useParticipant, useJobseekerProfile } from '../../hooks/jobseeker/useJobseeker'
@@ -59,7 +62,7 @@ const EMPTY = {
   description: '',
 }
 
-const input = 'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+const input = 'block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
 function formatSalaryInput(event) {
   event.target.value = event.target.value.replace(/\d[\d,]*/g, (number) => {
@@ -110,13 +113,16 @@ function formatLaborForceDuration(items) {
 }
 
 export default function WorkExperiencePage() {
-  const { participant, loading: participantLoading } = useParticipant()
-  const { profile, loading: profileLoading } = useJobseekerProfile(participant?.id)
+  const { participant, loading: participantLoading, error: participantError } = useParticipant()
+  const { profile, loading: profileLoading, error: profileError } = useJobseekerProfile(participant?.id)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [editing, setEditing] = useState(null) // null = list, 'new' = adding, {id} = editing
   const [saving, setSaving] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const form = useForm({ defaultValues: EMPTY })
   const profileForm = useForm()
   const { register, handleSubmit, reset, watch, formState: { errors: _errors } } = form
@@ -139,12 +145,13 @@ export default function WorkExperiencePage() {
 
   useEffect(() => {
     let alive = true
+    setLoading(true)
     workExperienceService.listMine()
-      .then((rows) => { if (alive) setItems(rows || []) })
-      .catch(() => {})
+      .then((rows) => { if (alive) { setItems(rows || []); setLoadError(false) } })
+      .catch(() => { if (alive) setLoadError(true) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   function startAdd() { setEditing('new'); reset(EMPTY) }
   function startEdit(item) { setEditing(item); reset({ ...EMPTY, ...item, start_date: formatMonthYear(item.start_date), end_date: formatMonthYear(item.end_date) }) }
@@ -200,13 +207,12 @@ export default function WorkExperiencePage() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this work experience?')) return
     try {
       await workExperienceService.remove(id)
       setItems((prev) => prev.filter(i => i.id !== id))
       toast.success('Deleted')
     } catch (e) {
-      toast.error(e.message || 'Failed to delete')
+      throw e
     }
   }
 
@@ -228,14 +234,25 @@ export default function WorkExperiencePage() {
     return (b.start_date || '').localeCompare(a.start_date || '')
   })
 
-  if (loading || participantLoading || profileLoading) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading work experiences…</main>
+  if (loading || participantLoading || profileLoading) return <PageLoadingState>Loading work experiences…</PageLoadingState>
+
+  if (participantError || profileError) return (
+    <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+      <div className="absolute right-4 top-4"><ThemeToggle /></div>
+      <section role="alert" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Your work profile couldn’t be checked</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Reload this page before editing so your saved employment details remain intact.</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Reload profile</button>
+      </section>
+    </main>
+  )
 
   // --- Edit / Add form ---
   if (editing) {
     return (
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-8 sm:px-6" role="presentation">
+      <AccessibleDialog open onClose={cancel} closeDisabled={saving} labelledBy="experience-modal-title" className="max-w-3xl p-0">
         <div className="mx-auto flex min-h-full max-w-3xl items-center justify-center">
-          <div className="w-full rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" role="dialog" aria-modal="true" aria-labelledby="experience-modal-title">
+          <div className="w-full rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
               <h1 id="experience-modal-title" className="text-lg font-bold text-slate-900">{editing === 'new' ? 'Add Work Experience' : 'Edit Work Experience'}</h1>
               <button type="button" onClick={cancel} className="rounded-lg px-2 py-1 text-2xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="Close">×</button>
@@ -320,21 +337,14 @@ export default function WorkExperiencePage() {
             </form>
           </div>
         </div>
-      </div>
+      </AccessibleDialog>
     )
   }
 
   // --- List view ---
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4 sm:px-6">
-          <Link to="/profile" className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900">
-            <PixelArrow className="h-4 w-4 rotate-180" /> Profile
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <JobseekerRecordHeader />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         <div className="flex items-center justify-between">
           <div>
@@ -342,7 +352,7 @@ export default function WorkExperiencePage() {
             <p className="mt-1 text-sm text-slate-500">Your employment history. This helps us match you with suitable programs.</p>
             <div className="mt-3 rounded-xl bg-blue-50 px-4 py-3 ring-1 ring-blue-100" aria-live="polite">
               <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Total Work Experience</p>
-              <p className="mt-1 text-lg font-bold text-blue-900">{formatLaborForceDuration(items).replace('Total Work Experience: ', '')}</p>
+              <p className="mt-1 text-lg font-bold text-blue-900">{loadError ? 'Unavailable' : formatLaborForceDuration(items).replace('Total Work Experience: ', '')}</p>
             </div>
           </div>
           <button onClick={startAdd} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
@@ -350,7 +360,9 @@ export default function WorkExperiencePage() {
           </button>
         </div>
 
-        <form onSubmit={handleProfileSubmit(saveProfileDetails)} className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+        {loadError && <section role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>Work history couldn’t be loaded, so the records and total experience shown here may be incomplete.</p><button type="button" onClick={() => { setLoading(true); setLoadError(false); setReloadKey((key) => key + 1) }} className="mt-2 min-h-10 font-semibold underline">Try again</button></section>}
+
+        <form onSubmit={handleProfileSubmit(saveProfileDetails)} className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-6">
           <h2 className="text-lg font-bold text-slate-900">Employment preferences</h2>
           <p className="mt-1 text-sm text-slate-500">Keep your employment status and relocation preference up to date.</p>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -363,8 +375,8 @@ export default function WorkExperiencePage() {
           <button type="submit" disabled={profileSaving} className="mt-5 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60">{profileSaving ? 'Saving…' : 'Save'}</button>
         </form>
 
-        {sortedItems.length === 0 ? (
-          <div className="mt-12 rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center">
+        {loadError ? null : sortedItems.length === 0 ? (
+          <div className="mt-12 rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
             <PixelBriefcase className="mx-auto h-6 w-6 text-slate-300" />
             <p className="mt-3 text-sm font-medium text-slate-500">No work experience recorded yet.</p>
             <p className="mt-1 text-xs text-slate-400">Add your employment history to strengthen your profile.</p>
@@ -375,7 +387,7 @@ export default function WorkExperiencePage() {
         ) : (
           <div className="mt-6 space-y-3">
             {sortedItems.map(item => (
-              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-slate-900">{item.position_title || 'Untitled position'}</p>
@@ -394,7 +406,7 @@ export default function WorkExperiencePage() {
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button onClick={() => startEdit(item)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</button>
-                    <button onClick={() => handleDelete(item.id)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
+                    <button onClick={() => setDeleteTarget(item)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
                   </div>
                 </div>
               </div>
@@ -402,6 +414,7 @@ export default function WorkExperiencePage() {
           </div>
         )}
       </main>
+      <ConfirmActionDialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} onConfirm={() => handleDelete(deleteTarget.id)} title="Delete work experience?" description={`This permanently removes ${deleteTarget?.position_title || 'this work experience'} from your profile.`} itemLabel="this work experience" />
     </div>
   )
 }

@@ -2,7 +2,7 @@
 // AuthContext; this module covers the profile/business data behind it.
 
 import { supabase } from '../lib/supabase'
-import { unwrap } from '../lib/errors'
+import { AppError, unwrap } from '../lib/errors'
 
 const PROFILE_FIELDS = 'id, email, full_name, role, is_active, jurisdiction, is_provincial'
 
@@ -36,11 +36,24 @@ export async function isProfileInactive(userId) {
   return !row || !row.is_active
 }
 
-export async function updateSelf(userId, patch) {
-  return unwrap(
-    await supabase.from('profiles').update(patch).eq('id', userId),
-    'Could not update profile'
+const STAFF_ROLES = new Set(['staff', 'supervisor', 'medical', 'admin'])
+
+export async function updateStaff(user, patch) {
+  if (!user?.id || !STAFF_ROLES.has(user.role) ||
+      (patch.role !== undefined && !STAFF_ROLES.has(patch.role))) {
+    throw new AppError('Select a staff account and a valid staff role')
+  }
+  const updated = unwrap(
+    await supabase.from('profiles').update(patch)
+      .eq('id', user.id)
+      .eq('role', user.role)
+      .eq('is_active', user.is_active)
+      .select(PROFILE_FIELDS)
+      .maybeSingle(),
+    'Could not update staff account'
   )
+  if (!updated) throw new AppError('No account was updated. Reload the staff list and try again.')
+  return updated
 }
 
 export async function listStaff(roles) {
@@ -58,6 +71,6 @@ export const profileService = {
   fetchCurrent: fetchCurrentProfile,
   fetchActiveFlag,
   isProfileInactive,
-  updateSelf,
+  updateStaff,
   listStaff,
 }

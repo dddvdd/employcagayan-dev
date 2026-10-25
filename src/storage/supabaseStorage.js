@@ -6,9 +6,9 @@
 import { supabase } from '../lib/supabase'
 
 async function upload(bucket, path, file, opts = {}) {
-  const { contentType, upsert = false } = opts
+  const { contentType, upsert = false, cacheControl } = opts
   const { error } = await supabase.storage.from(bucket).upload(path, file, {
-    contentType, upsert,
+    contentType, upsert, ...(cacheControl !== undefined ? { cacheControl } : {}),
   })
   if (error) throw error
   return { path }
@@ -30,9 +30,15 @@ function getPublicUrl(bucket, path) {
   return supabase.storage.from(bucket).getPublicUrl(path).data?.publicUrl ?? null
 }
 
+async function download(bucket,path) {
+ const {data,error}=await supabase.storage.from(bucket).download(path,{}, {cache:'no-store'})
+ if(error)throw error
+ return data
+}
 export const supabaseStorage = {
   upload,
   remove,
   createSignedUrl,
   getPublicUrl,
+  download,
 }

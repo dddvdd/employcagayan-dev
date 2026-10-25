@@ -16,6 +16,9 @@ import { eventService } from '../../services/eventService'
 import { referenceService } from '../../services/referenceService'
 import { vacancyRequirementService } from '../../services/vacancyRequirementService'
 import { recruitmentService } from '../../services/recruitmentService.js'
+import { reviewVacancyRequirements } from '../../domain/vacancyRequirementReadiness.js'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
+import AccreditationRequirementsList from '../../components/employer/AccreditationRequirementsList.jsx'
 import { EMPLOYER_REGISTRATION_STATUS, EMPLOYER_REGISTRATION_STATUS_LABEL, EMPLOYER_REGISTRATION_STATUS_BADGE, ACCREDITATION_REQUIREMENT_STATUS, isEmployerAccredited } from '../../domain/statuses'
 import { EMPLOYER_TYPE, BUSINESS_STRUCTURE, OSH_CLASSIFICATION } from '../../domain/employer'
 
@@ -75,6 +78,7 @@ const emptyDefForm = {
   salary_range: '',
   place_of_assignment: '',
   qualifications: '',
+  requirements_summary: '',
   principal_name: '',
   available_slots: '',
   is_active: true,
@@ -104,6 +108,8 @@ export default function EmployerDashboard() {
   const [events, setEvents] = useState([])
   const [filledCounts, setFilledCounts] = useState({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [referenceLoadError, setReferenceLoadError] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [editDef, setEditDef] = useState(null)
@@ -111,6 +117,7 @@ export default function EmployerDashboard() {
   const [addToEventDef, setAddToEventDef] = useState(null)
   const [editOffering, setEditOffering] = useState(null)
   const [deleteOffering, setDeleteOffering] = useState(null)
+  const [closingOffering, setClosingOffering] = useState(false)
   const [applicantsModal, setApplicantsModal] = useState(null)
   const [noEmployerRow, setNoEmployerRow] = useState(false)
   const [editCompanyOpen, setEditCompanyOpen] = useState(false)
@@ -138,10 +145,22 @@ export default function EmployerDashboard() {
   const [reqExperience, setReqExperience] = useState([])
   const [reqCertifications, setReqCertifications] = useState([])
   const [reqLanguages, setReqLanguages] = useState([])
+  const [requirementsLoadError, setRequirementsLoadError] = useState(false)
   const [publicationWorkingId, setPublicationWorkingId] = useState(null)
 
   const isAgency = employer?.employer_type === EMPLOYER_TYPE.LOCAL_AGENCY
   const isPending = employer?.registration_status === EMPLOYER_REGISTRATION_STATUS.PENDING
+  const requirementWarnings = reviewVacancyRequirements({
+    qualifications: defForm.qualifications,
+    requirements_summary: defForm.requirements_summary,
+    job_description: defForm.job_description,
+    skills: reqSkills.filter(r => !r._delete).map(r => ({
+      ...r, canonical_name: r.skills?.canonical_name || refSkills.find(s => s.id === r.skill_id)?.canonical_name,
+    })),
+    certification_requirements: reqCertifications.filter(r => !r._delete).map(r => ({
+      ...r, canonical_name: r.certifications?.canonical_name || refCertifications.find(c => c.id === r.certification_id)?.canonical_name,
+    })),
+  })
 
   useEffect(() => { if (profile?.id) loadData() }, [profile?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -181,16 +200,17 @@ export default function EmployerDashboard() {
       setEvents(evData || [])
       setFilledCounts(counts)
 
-      const [occData, indData, etData, waData, skData, elData, ceData, laData] = await Promise.all([
-        referenceService.listOccupations().catch(() => []),
-        referenceService.listIndustries().catch(() => []),
-        referenceService.listEmploymentTypes().catch(() => []),
-        referenceService.listWorkArrangements().catch(() => []),
-        referenceService.listSkills().catch(() => []),
-        referenceService.listEducationLevels().catch(() => []),
-        referenceService.listCertifications().catch(() => []),
-        referenceService.listLanguages().catch(() => []),
+      const referenceResults = await Promise.allSettled([
+        referenceService.listOccupations(),
+        referenceService.listIndustries(),
+        referenceService.listEmploymentTypes(),
+        referenceService.listWorkArrangements(),
+        referenceService.listSkills(),
+        referenceService.listEducationLevels(),
+        referenceService.listCertifications(),
+        referenceService.listLanguages(),
       ])
+      const [occData, indData, etData, waData, skData, elData, ceData, laData] = referenceResults.map((result) => result.status === 'fulfilled' ? result.value : null)
       setRefOccupations(occData || [])
       setRefIndustries(indData || [])
       setRefEmploymentTypes(etData || [])
@@ -199,7 +219,10 @@ export default function EmployerDashboard() {
       setRefEducationLevels(elData || [])
       setRefCertifications(ceData || [])
       setRefLanguages(laData || [])
+      setReferenceLoadError(referenceResults.some((result) => result.status === 'rejected'))
+      setLoadError(false)
     } catch (err) {
+      if (err?.code !== 'PGRST116') setLoadError(true)
       if (!noEmployerRow) toast.error(`Failed to load: ${err.message}`)
     } finally {
       setLoading(false)
@@ -214,21 +237,24 @@ export default function EmployerDashboard() {
   }), [definitions, filledCounts])
 
   async function loadRequirements(vacancyId) {
-    const [sk, ed, ex, ce, la] = await Promise.all([
-      vacancyRequirementService.listVacancySkills(vacancyId).catch(() => []),
-      vacancyRequirementService.listEducationReqs(vacancyId).catch(() => []),
-      vacancyRequirementService.listExperienceReqs(vacancyId).catch(() => []),
-      vacancyRequirementService.listCertificationReqs(vacancyId).catch(() => []),
-      vacancyRequirementService.listLanguageReqs(vacancyId).catch(() => []),
+    const results = await Promise.allSettled([
+      vacancyRequirementService.listVacancySkills(vacancyId),
+      vacancyRequirementService.listEducationReqs(vacancyId),
+      vacancyRequirementService.listExperienceReqs(vacancyId),
+      vacancyRequirementService.listCertificationReqs(vacancyId),
+      vacancyRequirementService.listLanguageReqs(vacancyId),
     ])
-    setReqSkills(sk || [])
-    setReqEducation(ed || [])
-    setReqExperience(ex || [])
-    setReqCertifications(ce || [])
-    setReqLanguages(la || [])
+    const [sk, ed, ex, ce, la] = results.map((result) => result.status === 'fulfilled' ? result.value : null)
+    if (sk) setReqSkills(sk)
+    if (ed) setReqEducation(ed)
+    if (ex) setReqExperience(ex)
+    if (ce) setReqCertifications(ce)
+    if (la) setReqLanguages(la)
+    setRequirementsLoadError(results.some((result) => result.status === 'rejected'))
   }
 
   async function saveRequirements(vacancyId) {
+    if (requirementsLoadError) throw new Error('Reload the existing vacancy requirements before saving changes.')
     const errs = []
     // Skills
     for (const r of reqSkills) {
@@ -283,7 +309,7 @@ export default function EmployerDashboard() {
     if (errs.length) toast.error(`Some requirements failed: ${errs.join('; ')}`)
   }
 
-  function clearReqState() { setReqSkills([]); setReqEducation([]); setReqExperience([]); setReqCertifications([]); setReqLanguages([]) }
+  function clearReqState() { setReqSkills([]); setReqEducation([]); setReqExperience([]); setReqCertifications([]); setReqLanguages([]); setRequirementsLoadError(false) }
 
   async function handleCreate(e) {
     e.preventDefault(); setCreating(true)
@@ -295,6 +321,7 @@ export default function EmployerDashboard() {
         available_slots: defForm.available_slots ? Number(defForm.available_slots) : null, created_source: 'employer',
         is_active: defForm.is_active, employer_id: employer.id,
         job_description: defForm.job_description || null,
+        requirements_summary: defForm.requirements_summary || null,
         occupation_id: defForm.occupation_id || null,
         industry_id: defForm.industry_id || null,
         employment_type_id: defForm.employment_type_id || null,
@@ -319,7 +346,8 @@ export default function EmployerDashboard() {
     setEditDef(def)
     setDefForm({ position: def.position, salary_range: def.salary_range || '', place_of_assignment: def.place_of_assignment || '',
       qualifications: def.qualifications || '', principal_name: def.principal_name || '', available_slots: def.available_slots ?? '', is_active: def.is_active,
-      job_description: def.job_description || '', occupation_id: def.occupation_id || '', industry_id: def.industry_id || '',
+      job_description: def.job_description || '', requirements_summary: def.requirements_summary || '',
+      occupation_id: def.occupation_id || '', industry_id: def.industry_id || '',
       employment_type_id: def.employment_type_id || '', work_arrangement_id: def.work_arrangement_id || '',
       salary_min: def.salary_min ?? '', salary_max: def.salary_max ?? '', salary_period: def.salary_period || '',
       salary_negotiable: def.salary_negotiable || false, province: def.province || '', municipality_city: def.municipality_city || '' })
@@ -330,12 +358,16 @@ export default function EmployerDashboard() {
   async function saveDefinition() {
     setSaving(true)
     try {
+      if (editDef.platform_status === 'published' && (requirementsLoadError || requirementWarnings.length)) {
+        throw new Error('Review and resolve possible mandatory requirements before changing this published vacancy.')
+      }
       await vacancyService.update(editDef.id, {
         position: defForm.position, salary_range: defForm.salary_range || null,
         place_of_assignment: defForm.place_of_assignment || null, qualifications: defForm.qualifications || null,
         principal_name: isAgency ? (defForm.principal_name || null) : null,
         available_slots: defForm.available_slots ? Number(defForm.available_slots) : null, is_active: defForm.is_active,
         job_description: defForm.job_description || null,
+        requirements_summary: defForm.requirements_summary || null,
         occupation_id: defForm.occupation_id || null,
         industry_id: defForm.industry_id || null,
         employment_type_id: defForm.employment_type_id || null,
@@ -420,6 +452,21 @@ export default function EmployerDashboard() {
     }
   }
 
+  async function confirmCloseOffering() {
+    if (!deleteOffering) return
+    setClosingOffering(true)
+    try {
+      await eventVacancyService.closeApplications(deleteOffering.id)
+      toast.success('Applications closed. Existing records are kept.')
+      setDeleteOffering(null)
+      await loadData()
+    } catch (err) {
+      toast.error(`Could not close applications: ${err.message}`)
+    } finally {
+      setClosingOffering(false)
+    }
+  }
+
   async function loadApplicants(offering) {
     try {
       const data = await employerApplicantsService.listForOffering(offering.id)
@@ -432,7 +479,25 @@ export default function EmployerDashboard() {
   async function changePublication(definition, action) {
     setPublicationWorkingId(definition.id)
     try {
-      if (action === 'publish') await recruitmentService.publishVacancy(definition.id)
+      if (action === 'publish') {
+        const [latest, skills, certifications] = await Promise.all([
+          vacancyService.getForRequirementReview(definition.id),
+          vacancyRequirementService.listVacancySkills(definition.id),
+          vacancyRequirementService.listCertificationReqs(definition.id),
+        ])
+        const warnings = reviewVacancyRequirements({
+          ...latest,
+          skills: skills.map(row => ({ ...row, canonical_name: row.skills?.canonical_name })),
+          certification_requirements: certifications.map(row => ({ ...row, canonical_name: row.certifications?.canonical_name })),
+        })
+        if (warnings.length) {
+          toast.error(`Review ${warnings[0].field.replaceAll('_', ' ')}: “${warnings[0].source}”`)
+          openEditDef({ ...definition, ...latest })
+          setModalTab('requirements')
+          return
+        }
+        await recruitmentService.publishVacancy(definition.id)
+      }
       else await recruitmentService.closeVacancy(definition.id)
       toast.success(action === 'publish' ? 'Vacancy published to Trabaho Jobs.' : 'Platform listing closed. Event offerings were not changed.')
       await loadData()
@@ -518,21 +583,6 @@ export default function EmployerDashboard() {
     : employer?.registration_status === EMPLOYER_REGISTRATION_STATUS.REJECTED
       ? { label: EMPLOYER_REGISTRATION_STATUS_LABEL[EMPLOYER_REGISTRATION_STATUS.REJECTED], cls: EMPLOYER_REGISTRATION_STATUS_BADGE[EMPLOYER_REGISTRATION_STATUS.REJECTED] }
       : { label: EMPLOYER_REGISTRATION_STATUS_LABEL[EMPLOYER_REGISTRATION_STATUS.PENDING], cls: EMPLOYER_REGISTRATION_STATUS_BADGE[EMPLOYER_REGISTRATION_STATUS.PENDING] }
-  const statusIcon = {
-    [ACCREDITATION_REQUIREMENT_STATUS.APPROVED]: '✓',
-    [ACCREDITATION_REQUIREMENT_STATUS.SUBMITTED]: '⏳',
-    [ACCREDITATION_REQUIREMENT_STATUS.NEEDS_CORRECTION]: '⚠',
-    [ACCREDITATION_REQUIREMENT_STATUS.REJECTED]: '✗',
-    [ACCREDITATION_REQUIREMENT_STATUS.NOT_SUBMITTED]: '○',
-  }
-  const statusColor = {
-    [ACCREDITATION_REQUIREMENT_STATUS.APPROVED]: 'text-emerald-600',
-    [ACCREDITATION_REQUIREMENT_STATUS.SUBMITTED]: 'text-blue-600',
-    [ACCREDITATION_REQUIREMENT_STATUS.NEEDS_CORRECTION]: 'text-amber-600',
-    [ACCREDITATION_REQUIREMENT_STATUS.REJECTED]: 'text-red-600',
-    [ACCREDITATION_REQUIREMENT_STATUS.NOT_SUBMITTED]: 'text-slate-400',
-  }
-
   const inputCls = 'w-full min-h-[44px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus-visible:ring-4 focus-visible:ring-violet-300'
 
   if (loading) {
@@ -550,9 +600,18 @@ export default function EmployerDashboard() {
     )
   }
   if (noEmployerRow) return <Navigate to="/register-employer/complete" replace />
+  if (loadError || !employer) return (
+    <section role="alert" className="rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+      <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Employer workspace couldn’t be loaded</h1>
+      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection and try again. Your company and vacancy data have not been changed.</p>
+      <button type="button" onClick={() => { setLoading(true); setLoadError(false); loadData() }} className="mt-5 min-h-11 rounded-lg bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-800">Try again</button>
+    </section>
+  )
 
   return (
     <div className="space-y-6">
+      {referenceLoadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Some reference choices couldn’t be loaded. Refresh the workspace before editing vacancy qualifications.</div>}
+      {requirementsLoadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Some existing requirements could not be loaded. Reload the vacancy requirements before saving changes to avoid overwriting missing data.</div>}
       <div className={`p-6 ${PANEL}`}>
         <div className="flex flex-wrap items-center gap-4">
           <div aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border-2 border-slate-900 bg-role-employer/15 text-xl font-black text-role-employer pixel-shadow-sm">{employer.company_name.charAt(0)}</div>
@@ -649,44 +708,7 @@ export default function EmployerDashboard() {
               </div>
               <span className="font-mono text-xs font-bold text-slate-600">{approvedCount} / {applicable.length} approved</span>
             </div>
-            <ul className="mt-4 space-y-5">
-              {Object.entries(applicable.reduce((groups, req) => {
-                const cat = req.category || 'Other Requirements'
-                ;(groups[cat] = groups[cat] || []).push(req)
-                return groups
-              }, {})).map(([cat, reqs]) => (
-                <li key={cat}>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{cat}</p>
-                  <ul className="mt-1 divide-y divide-slate-100">
-                    {reqs.map(req => (
-                      <li key={req.key} className="py-2.5">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span className={`font-bold ${statusColor[req.status] || 'text-slate-400'}`}>{statusIcon[req.status] || '○'}</span>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{req.label}</span>
-                          {req.document_path ? (
-                            <button onClick={() => viewDocument(req.document_path)} className={`${BTN_MINI} bg-white text-slate-700`}>View PDF</button>
-                          ) : null}
-                          {req.status !== ACCREDITATION_REQUIREMENT_STATUS.APPROVED && (
-                            <label className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-lg border-2 border-slate-900 bg-role-employer px-3 py-2 text-xs font-bold uppercase tracking-wide text-white pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-within:ring-4 focus-within:ring-violet-300 ${uploadingKey === req.key ? 'opacity-50' : ''}`}>
-                              {uploadingKey === req.key ? 'Uploading…' : (req.document_path ? 'Replace PDF' : 'Upload PDF')}
-                              <input type="file" accept="application/pdf" hidden onChange={(e) => { handleUploadDoc(req, e.target.files[0]); e.target.value = '' }} />
-                            </label>
-                          )}
-                        </div>
-                        <p className="ml-6 mt-0.5 text-[11px] text-slate-400">
-                          Accepted format: PDF · Max 5 MB{req.original_filename ? ` · ${req.original_filename}` : ''}
-                        </p>
-                        {(req.status === ACCREDITATION_REQUIREMENT_STATUS.NEEDS_CORRECTION || req.status === ACCREDITATION_REQUIREMENT_STATUS.REJECTED) && req.review_notes && (
-                          <p className={`ml-6 mt-1 rounded-lg px-3 py-2 text-xs ${req.status === ACCREDITATION_REQUIREMENT_STATUS.NEEDS_CORRECTION ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-700'}`}>
-                            PESO note ({req.status === ACCREDITATION_REQUIREMENT_STATUS.NEEDS_CORRECTION ? 'needs correction' : 'rejected'}): {req.review_notes}
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
+            <AccreditationRequirementsList employer={employer} accreditation={accreditation} uploadingKey={uploadingKey} onUpload={handleUploadDoc} onView={viewDocument} />
           </>
         )}
           </>
@@ -755,6 +777,7 @@ export default function EmployerDashboard() {
                         <span className="font-mono text-xs font-bold">{filled}/{ev.slots_offered}</span>
                       </div>
                       {ev.events?.event_date && <p className="font-mono text-[10px] text-slate-400">{format(new Date(ev.events.event_date), 'MMM d, yyyy')}</p>}
+                      {ev.application_deadline && Date.parse(ev.application_deadline) <= Date.now() && <p className="mt-1 text-xs font-semibold text-amber-800">Applications closed</p>}
                       <div className="mt-1.5 h-2 w-full overflow-hidden border border-slate-900 bg-slate-100">
                         <div className={`h-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 80 ? 'bg-amber-500' : 'bg-role-employer'}`} style={{ width: `${pct}%` }} />
                       </div>
@@ -845,7 +868,7 @@ export default function EmployerDashboard() {
       )}
 
       {(createOpen || editDef) && (
-        <Modal onClose={() => { setCreateOpen(false); setEditDef(null); clearReqState(); setModalTab('job') }} title={editDef ? 'Edit Vacancy' : 'Create Vacancy'}>
+        <Modal onClose={() => { setCreateOpen(false); setEditDef(null); clearReqState(); setModalTab('job') }} closeDisabled={creating || saving} title={editDef ? 'Edit Vacancy' : 'Create Vacancy'}>
           <div className="mb-4 flex gap-1 rounded-lg border-2 border-slate-900 p-1">
             <button type="button" onClick={() => setModalTab('job')} className={`flex-1 rounded-md px-3 py-2 text-xs font-bold uppercase tracking-wide ${modalTab === 'job' ? 'bg-role-employer text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Job Info</button>
             <button type="button" onClick={() => setModalTab('requirements')} className={`flex-1 rounded-md px-3 py-2 text-xs font-bold uppercase tracking-wide ${modalTab === 'requirements' ? 'bg-role-employer text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Requirements</button>
@@ -856,6 +879,7 @@ export default function EmployerDashboard() {
               <div><label className="block text-sm font-medium text-slate-700">Position *</label><input required className={inputCls} value={defForm.position} onChange={(e) => setDefForm({ ...defForm, position: e.target.value })} /></div>
               {isAgency && <div><label className="block text-sm font-medium text-slate-700">Principal</label><input className={inputCls} value={defForm.principal_name} onChange={(e) => setDefForm({ ...defForm, principal_name: e.target.value })} placeholder="Company they're hiring for" /><p className="mt-1 text-xs text-slate-400">Leave empty if direct hire</p></div>}
               <div><label className="block text-sm font-medium text-slate-700">Job Description</label><textarea className={inputCls} rows={2} value={defForm.job_description} onChange={(e) => setDefForm({ ...defForm, job_description: e.target.value })} placeholder="Describe the role and responsibilities" /></div>
+              <div><label className="block text-sm font-medium text-slate-700">Requirements Summary</label><textarea className={inputCls} rows={2} value={defForm.requirements_summary} onChange={(e) => setDefForm({ ...defForm, requirements_summary: e.target.value })} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-sm font-medium text-slate-700">Occupation</label><select className={inputCls} value={defForm.occupation_id} onChange={(e) => setDefForm({ ...defForm, occupation_id: e.target.value })}><option value="">Select occupation</option>{refOccupations.map(o => <option key={o.id} value={o.id}>{o.canonical_name}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-slate-700">Industry</label><select className={inputCls} value={defForm.industry_id} onChange={(e) => setDefForm({ ...defForm, industry_id: e.target.value })}><option value="">Select industry</option>{refIndustries.map(i => <option key={i.id} value={i.id}>{i.canonical_name}</option>)}</select></div>
@@ -888,7 +912,7 @@ export default function EmployerDashboard() {
                       <p className="text-sm font-medium text-slate-800">{r.skills?.canonical_name || refSkills.find(s => s.id === r.skill_id)?.canonical_name || 'Unknown'}</p>
                       <p className="text-[11px] text-slate-500">{r.importance}{r.minimum_proficiency ? ` · ${r.minimum_proficiency}` : ''}{r.minimum_years_experience ? ` · ${r.minimum_years_experience}yr` : ''}</p>
                     </div>
-                    <button type="button" onClick={() => setReqSkills(prev => prev.filter((_, j) => j !== i))} className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Remove</button>
+                    <button type="button" onClick={() => setReqSkills(prev => prev.map(row => row === r ? { ...row, _delete: true } : row).filter(row => row.id || !row._delete))} className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Remove</button>
                   </div>
                 ))}
                 <ReqSkillAdd refSkills={refSkills} onAdd={(sk) => setReqSkills(prev => [...prev, { ...sk, _local: true }])} existing={reqSkills.filter(r => !r._delete).map(r => r.skill_id)} />
@@ -930,7 +954,7 @@ export default function EmployerDashboard() {
                       <p className="text-sm font-medium text-slate-800">{r.certifications?.canonical_name || refCertifications.find(c => c.id === r.certification_id)?.canonical_name || 'Unknown'}</p>
                       <p className="text-[11px] text-slate-500">{r.importance}{r.must_be_valid ? ' · must be valid' : ''}</p>
                     </div>
-                    <button type="button" onClick={() => setReqCertifications(prev => prev.filter((_, j) => j !== i))} className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Remove</button>
+                    <button type="button" onClick={() => setReqCertifications(prev => prev.map(row => row === r ? { ...row, _delete: true } : row).filter(row => row.id || !row._delete))} className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Remove</button>
                   </div>
                 ))}
                 <ReqCertAdd refCertifications={refCertifications} onAdd={(ce) => setReqCertifications(prev => [...prev, { ...ce, _local: true }])} existing={reqCertifications.filter(r => !r._delete).map(r => r.certification_id)} />
@@ -951,6 +975,15 @@ export default function EmployerDashboard() {
               </ReqSection>
             </>)}
 
+            {requirementWarnings.length > 0 && (
+              <div role="alert" className="rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="font-semibold">Possible mandatory requirements need review before publication.</p>
+                <p>Add the exact required skill or certificate in Structured requirements, or correct the free text. No qualification is inferred automatically.</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {requirementWarnings.map((warning, index) => <li key={index}>{warning.field.replaceAll('_', ' ')}: “{warning.source}”</li>)}
+                </ul>
+              </div>
+            )}
             <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={defForm.is_active} onChange={(e) => setDefForm({ ...defForm, is_active: e.target.checked })} className="h-4 w-4 rounded" />Active</label>
             <button disabled={creating || saving} className={`${BTN} w-full bg-role-employer py-3 text-white disabled:opacity-50`}>{creating || saving ? 'Saving...' : 'Save'}</button>
           </form>
@@ -958,7 +991,7 @@ export default function EmployerDashboard() {
       )}
 
       {addToEventDef && (
-        <Modal onClose={() => setAddToEventDef(null)} title={`Offer "${addToEventDef.position}" at event`}>
+        <Modal onClose={() => setAddToEventDef(null)} closeDisabled={saving} title={`Offer "${addToEventDef.position}" at event`}>
           <div className="space-y-4">
             <div><label className="block text-sm font-medium text-slate-700">Event *</label><select className={inputCls} value={offeringForm.event_id} onChange={(e) => setOfferingForm({ ...offeringForm, event_id: e.target.value })}><option value="">Select</option>{events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name} — {eventTypeDisplay(ev)}</option>)}</select></div>
             <div><label className="block text-sm font-medium text-slate-700">Slots *</label><input type="number" min="1" className={inputCls} value={offeringForm.slots_offered} onChange={(e) => setOfferingForm({ ...offeringForm, slots_offered: e.target.value })} /></div>
@@ -969,7 +1002,7 @@ export default function EmployerDashboard() {
       )}
 
       {editOffering && (
-        <Modal onClose={() => setEditOffering(null)} title={`Edit — ${editOffering.definition.position}`}>
+        <Modal onClose={() => setEditOffering(null)} closeDisabled={saving} title={`Edit — ${editOffering.definition.position}`}>
           <div className="space-y-4">
             <p className="text-xs text-slate-500">Event: {editOffering.offering.events?.event_name}</p>
             <div><label className="block text-sm font-medium text-slate-700">Slots *</label><input type="number" min="1" className={inputCls} value={offeringForm.slots_offered} onChange={(e) => setOfferingForm({ ...offeringForm, slots_offered: e.target.value })} /></div>
@@ -980,8 +1013,8 @@ export default function EmployerDashboard() {
       )}
 
       {deleteDef && (
-        <Modal onClose={() => setDeleteDef(null)} title="Confirm Delete">
-          <p className="text-sm text-slate-600">Delete <strong>{deleteDef.position}</strong>? This removes all event offerings too.</p>
+        <Modal onClose={() => setDeleteDef(null)} closeDisabled={deleting} title="Confirm Delete">
+          <p className="text-sm text-slate-600">Delete <strong>{deleteDef.position}</strong>? Vacancies with recruitment history must be kept; deactivate them to stop recruitment.</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <button onClick={() => setDeleteDef(null)} className={`${BTN} bg-white py-3 text-slate-700`}>Cancel</button>
             <button onClick={confirmDeleteDefinition} disabled={deleting} className={`${BTN} border-red-800 bg-red-600 py-3 text-white disabled:opacity-50`}>{deleting ? 'Deleting...' : 'Delete'}</button>
@@ -990,17 +1023,18 @@ export default function EmployerDashboard() {
       )}
 
       {deleteOffering && (
-        <Modal onClose={() => setDeleteOffering(null)} title="Remove Offering">
-          <p className="text-sm text-slate-600">Remove from <strong>{deleteOffering.events?.event_name}</strong>?</p>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button onClick={() => setDeleteOffering(null)} className={`${BTN} bg-white py-3 text-slate-700`}>Cancel</button>
-            <button onClick={confirmDeleteOffering} disabled={deleting} className={`${BTN} border-red-800 bg-red-600 py-3 text-white disabled:opacity-50`}>{deleting ? 'Removing...' : 'Remove'}</button>
+        <Modal onClose={() => setDeleteOffering(null)} closeDisabled={deleting || closingOffering} title="Remove Offering">
+          <p className="text-sm text-slate-600">Close applications at <strong>{deleteOffering.events?.event_name}</strong> to keep existing records. Removal is available only when there is no recruitment history.</p>
+          <div className="mt-4 flex flex-col gap-3">
+            <button onClick={confirmCloseOffering} disabled={deleting || closingOffering} className={`${BTN} bg-role-employer py-3 text-white disabled:opacity-50`}>{closingOffering ? 'Closing...' : 'Close applications'}</button>
+            <button onClick={() => setDeleteOffering(null)} disabled={deleting || closingOffering} className={`${BTN} bg-white py-3 text-slate-700 disabled:opacity-50`}>Cancel</button>
+            <button onClick={confirmDeleteOffering} disabled={deleting || closingOffering} className={`${BTN} border-red-800 bg-red-600 py-3 text-white disabled:opacity-50`}>{deleting ? 'Removing...' : 'Remove'}</button>
           </div>
         </Modal>
       )}
 
       {editCompanyOpen && companyForm && (
-        <Modal onClose={() => setEditCompanyOpen(false)} title="Edit Company Information">
+        <Modal onClose={() => setEditCompanyOpen(false)} closeDisabled={saving} title="Edit Company Information">
           <form onSubmit={saveCompany} className="space-y-4">
             <div><label className="block text-sm font-medium text-slate-700">Company Name *</label><input required className={inputCls} value={companyForm.company_name} onChange={(e) => setCompanyForm({ ...companyForm, company_name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-3">
@@ -1230,16 +1264,15 @@ function ReqLangAdd({ refLanguages, onAdd, existing }) {
   )
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, closeDisabled = false }) {
+  const titleId = `employer-dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`${PANEL} max-h-[90dvh] w-full max-w-md overflow-y-auto p-6`} onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={closeDisabled} labelledBy={titleId} className={`${PANEL} max-w-md`}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-300">×</button>
+          <h2 id={titleId} className="text-lg font-black uppercase tracking-wide text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" disabled={closeDisabled} onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-300 disabled:opacity-50">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }

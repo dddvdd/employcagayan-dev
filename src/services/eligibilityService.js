@@ -2,6 +2,13 @@ import { supabase } from '../lib/supabase'
 import { unwrap } from '../lib/errors'
 import { evaluateEligibility, ELIGIBILITY_STATUS, CHECK_STATUS, REASON_CODES } from '../domain/eligibility'
 
+function requireVacancyText(vacancy) {
+  if (vacancy && ['qualifications', 'job_description', 'requirements_summary'].some(
+    field => !Object.hasOwn(vacancy, field) || (vacancy[field] !== null && typeof vacancy[field] !== 'string')
+  )) throw new Error('Vacancy requirement text is unavailable; matching needs review.')
+  return vacancy
+}
+
 /**
  * Loads the structured matching payload for a jobseeker profile.
  * Single round-trip RPC.
@@ -20,13 +27,13 @@ export async function getJobseekerMatchProfile(jobseekerProfileId) {
  * Single round-trip RPC.
  */
 export async function getVacancyMatchProfile(vacancyDefinitionId, eventVacancyId = null) {
-  return unwrap(
+  return requireVacancyText(unwrap(
     await supabase.rpc('get_vacancy_match_profile', {
       p_vacancy_definition_id: vacancyDefinitionId,
       p_event_vacancy_id: eventVacancyId,
     }),
     'Could not load vacancy match profile'
-  )
+  ))
 }
 
 /**
@@ -34,13 +41,13 @@ export async function getVacancyMatchProfile(vacancyDefinitionId, eventVacancyId
  * Eliminates N+1 query patterns for 1 x N matching.
  */
 export async function getVacanciesMatchProfiles(vacancyDefinitionIds = null, eventId = null) {
-  return unwrap(
+  return (unwrap(
     await supabase.rpc('get_vacancies_match_profiles', {
       p_vacancy_definition_ids: vacancyDefinitionIds,
       p_event_id: eventId,
     }),
     'Could not load vacancies match profiles'
-  )
+  ) || []).map(requireVacancyText)
 }
 
 /**

@@ -1,5 +1,5 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useMemo, useState } from 'react'
-import Papa from 'papaparse'
 import { toast } from 'sonner'
 import { useAuth } from '../../contexts/AuthContext'
 import { eventTypeDisplay } from '../../domain/eventTypes'
@@ -7,6 +7,7 @@ import { format } from 'date-fns'
 import ThemeToggle from '../../components/ThemeToggle'
 import { medicalService } from '../../services/medicalService'
 import { eventService } from '../../services/eventService'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 const STATUS_OPTIONS = ['pending', 'completed', 'cancelled']
 const STATUS_LABELS = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled' }
@@ -24,9 +25,9 @@ const SERVICE_BADGE = {
   slate: 'bg-slate-100 text-slate-700',
 }
 
-// ----- PPESO pixel design tokens — Medical identity: role-medical (green) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
-const BTN = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border-2 border-slate-900 font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-role-medical/40'
+// Shared portal surfaces and controls, with semantic medical status colors.
+const PANEL = 'rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
+const BTN = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-200 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:focus-visible:ring-blue-950'
 
 // Small cross variant for header identity tiles.
 function PixelCrossMini() {
@@ -63,6 +64,9 @@ export default function MedicalDashboard() {
   const [eventFilter, setEventFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [eventsError, setEventsError] = useState('')
+  const [updatingReferralId, setUpdatingReferralId] = useState(null)
 
   const [viewDetails, setViewDetails] = useState(null)
   const [editNotes, setEditNotes] = useState(null)
@@ -74,18 +78,18 @@ export default function MedicalDashboard() {
   }, [])
 
   async function loadData() {
-    try {
-      const [referrals, evData] = await Promise.all([
+    setLoading(true)
+    setLoadError('')
+    setEventsError('')
+    const [referralResult, eventResult] = await Promise.allSettled([
         medicalService.listReferralsFull(),
         eventService.listForVacancyFilter(),
-      ])
-      setReferrals(referrals || [])
-      setEvents(evData || [])
-    } catch (err) {
-      toast.error(`Failed to load referrals: ${err.message}`)
-    } finally {
-      setLoading(false)
-    }
+    ])
+    if (referralResult.status === 'fulfilled') setReferrals(referralResult.value || [])
+    else setLoadError(referralResult.reason?.message || 'Failed to load referrals.')
+    if (eventResult.status === 'fulfilled') setEvents(eventResult.value || [])
+    else setEventsError(eventResult.reason?.message || 'Event filters could not be loaded.')
+    setLoading(false)
   }
 
   const filtered = useMemo(() => {
@@ -104,12 +108,15 @@ export default function MedicalDashboard() {
   }, [referrals, statusFilter, eventFilter, search])
 
   async function updateStatus(ref, status) {
+    setUpdatingReferralId(ref.id)
     try {
       await medicalService.updateReferral(ref.id, { status })
+      setReferrals(current => current.map(item => item.id === ref.id ? { ...item, status } : item))
       toast.success(`Referral marked ${STATUS_LABELS[status]}`)
-      await loadData()
     } catch (err) {
       toast.error(`Update failed: ${err.message}`)
+    } finally {
+      setUpdatingReferralId(null)
     }
   }
 
@@ -123,9 +130,9 @@ export default function MedicalDashboard() {
     setSavingNotes(true)
     try {
       await medicalService.updateReferral(editNotes.id, { notes: notesValue || null })
+      setReferrals(current => current.map(item => item.id === editNotes.id ? { ...item, notes: notesValue || null } : item))
       toast.success('Notes updated!')
       setEditNotes(null)
-      await loadData()
     } catch (err) {
       toast.error(`Update failed: ${err.message}`)
     } finally {
@@ -147,7 +154,7 @@ export default function MedicalDashboard() {
       notes: r.notes || '',
       created_at: r.created_at ? format(new Date(r.created_at), 'yyyy-MM-dd HH:mm:ss') : '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -157,11 +164,12 @@ export default function MedicalDashboard() {
     URL.revokeObjectURL(url)
   }
 
-  const inputCls = 'min-h-[44px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
+  const inputCls = 'min-h-[44px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
   if (loading) {
     return (
-      <div className="grid min-h-[300px] place-items-center" role="status">
+      <div className="relative grid min-h-[300px] place-items-center" role="status">
+        <div className="absolute right-0 top-0"><ThemeToggle /></div>
         <div className="text-center">
           <div className="flex items-center justify-center gap-1.5" aria-hidden>
             {[0, 1, 2].map(i => (
@@ -178,23 +186,32 @@ export default function MedicalDashboard() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span aria-hidden className="hidden h-11 w-11 shrink-0 place-items-center rounded-lg border-2 border-slate-900 bg-role-medical/15 text-role-medical pixel-shadow-sm sm:grid">
+          <span aria-hidden className="hidden h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 sm:grid">
             <PixelCrossMini />
           </span>
           <div>
-            <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-role-medical">PPESO · Medical Workspace</p>
-            <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">Medical Dashboard</h1>
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">PPESO · Medical workspace</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Medical referrals</h1>
             <p aria-live="polite" className="mt-1 text-sm text-slate-600">{filtered.length} referral(s) · one referral per HOTS applicant</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <span className="hidden text-xs text-slate-500 sm:inline">{profile?.full_name || profile?.email} ({profile?.role})</span>
-          <button onClick={exportCSV} className={`${BTN} bg-role-medical px-4 text-white text-xs`}>Export CSV</button>
-          <button onClick={() => signOut()} className={`${BTN} bg-white px-4 text-slate-700 text-xs`}>Sign out</button>
+          <button type="button" onClick={exportCSV} className={`${BTN} bg-blue-700 px-4 text-sm text-white hover:bg-blue-800`}>Export CSV</button>
+          <button type="button" onClick={() => signOut()} className={`${BTN} bg-white px-4 text-sm text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}>Sign out</button>
         </div>
       </div>
 
+      {eventsError && <div role="status" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Event list unavailable</p><p className="mt-1">Referral data is available, but event filtering is limited until the event list loads. {eventsError}</p><button type="button" onClick={loadData} className="mt-2 min-h-10 font-semibold underline">Reload data</button></div>}
+
+      {loadError ? (
+        <div role="alert" className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-6 text-sm text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
+          <h2 className="font-bold">Referrals could not be loaded</h2>
+          <p className="mt-1">{loadError}</p>
+          <button type="button" onClick={loadData} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button>
+        </div>
+      ) : <>
       {/* Filters — every grid child must be shrinkable (min-width:auto on
           grid items lets long <option> labels blow out the track). */}
       <div className={`mt-4 grid min-w-0 grid-cols-1 gap-3 p-4 sm:grid-cols-3 ${PANEL}`}>
@@ -233,8 +250,9 @@ export default function MedicalDashboard() {
                   <select
                     value={ref.status}
                     onChange={(e) => updateStatus(ref, e.target.value)}
+                    disabled={updatingReferralId === ref.id}
                     aria-label={`Status for ${nm}`}
-                    className={`min-h-[44px] shrink-0 rounded-lg border-2 border-slate-900 px-2 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-role-medical/40 ${STATUS_COLORS[ref.status] || 'bg-slate-100 text-slate-700'}`}
+                    className={`min-h-[44px] shrink-0 rounded-lg border border-slate-200 px-2 text-xs font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 ${STATUS_COLORS[ref.status] || 'bg-slate-100 text-slate-700'}`}
                   >
                     {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                   </select>
@@ -252,8 +270,8 @@ export default function MedicalDashboard() {
                   <div className="flex gap-1.5"><dt className="w-16 shrink-0 font-semibold uppercase tracking-wide text-slate-400">Referred</dt><dd className="min-w-0">{ref.profiles?.full_name || '—'}{ref.created_at ? ` · ${format(new Date(ref.created_at), 'MMM d, yyyy')}` : ''}</dd></div>
                 </dl>
                 <div className="flex gap-2 pt-1">
-                  <button onClick={() => setViewDetails(ref)} aria-label={`View details for ${nm}`} className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-lg border-2 border-slate-900 bg-white px-3 text-xs font-bold uppercase tracking-wide text-slate-700 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">View</button>
-                  <button onClick={() => openNotes(ref)} aria-label={`Edit notes for ${nm}`} className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-lg border-2 border-slate-900 bg-role-medical px-3 text-xs font-bold uppercase tracking-wide text-white pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">Notes</button>
+                  <button type="button" onClick={() => setViewDetails(ref)} aria-label={`View details for ${nm}`} className={`${BTN} min-h-[44px] flex-1 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}>View</button>
+                  <button type="button" onClick={() => openNotes(ref)} aria-label={`Edit notes for ${nm}`} className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">Notes</button>
                 </div>
               </li>
             )
@@ -299,8 +317,9 @@ export default function MedicalDashboard() {
                       <select
                         value={ref.status}
                         onChange={(e) => updateStatus(ref, e.target.value)}
+                        disabled={updatingReferralId === ref.id}
                         aria-label={`Status for ${[ref.registrants?.first_name, ref.registrants?.last_name].filter(Boolean).join(' ')}`}
-                        className={`min-h-[40px] rounded-lg border-2 border-slate-900 px-2 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-role-medical/40 ${STATUS_COLORS[ref.status] || 'bg-slate-100 text-slate-700'}`}
+                        className={`min-h-[40px] rounded-lg border border-slate-200 px-2 text-xs font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 ${STATUS_COLORS[ref.status] || 'bg-slate-100 text-slate-700'}`}
                       >
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                       </select>
@@ -309,8 +328,8 @@ export default function MedicalDashboard() {
                     <td className="px-4 py-3 text-xs text-slate-500">{ref.created_at ? format(new Date(ref.created_at), 'MMM d, yyyy') : '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5">
-                        <button onClick={() => setViewDetails(ref)} aria-label="View referral details" className="inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 bg-white px-3 text-xs font-bold uppercase tracking-wide text-slate-700 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">View</button>
-                        <button onClick={() => openNotes(ref)} aria-label="Edit notes" className="inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 bg-role-medical px-3 text-xs font-bold uppercase tracking-wide text-white pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">Notes</button>
+                        <button type="button" onClick={() => setViewDetails(ref)} aria-label="View referral details" className={`${BTN} min-h-[44px] bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}>View</button>
+                        <button type="button" onClick={() => openNotes(ref)} aria-label="Edit notes" className="inline-flex min-h-[44px] items-center rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">Notes</button>
                       </div>
                     </td>
                   </tr>
@@ -327,6 +346,7 @@ export default function MedicalDashboard() {
           </div>
         )}
       </div>
+      </>}
 
       {/* View details modal — SERVICES FIRST, then client details */}
       {viewDetails && (
@@ -359,7 +379,7 @@ export default function MedicalDashboard() {
       {editNotes && (
         <Modal onClose={() => setEditNotes(null)} title="Edit Notes">
           <textarea
-            className="w-full rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-300"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             rows={4}
             value={notesValue}
             onChange={(e) => setNotesValue(e.target.value)}
@@ -376,16 +396,15 @@ export default function MedicalDashboard() {
 }
 
 function Modal({ title, children, onClose }) {
+  const titleId = `dialog-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`${PANEL} max-h-[90dvh] w-full max-w-md overflow-y-auto p-6`} onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} labelledBy={titleId} className={`${PANEL} max-w-md`}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">×</button>
+          <h2 id={titleId} className="text-lg font-black uppercase tracking-wide text-slate-900 dark:text-slate-100">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">×</button>
         </div>
         {children}
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 

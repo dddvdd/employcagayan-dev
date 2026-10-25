@@ -106,6 +106,6 @@ export function formatMatchExplanation(explanation) {
         ? 'Semantic similarity contributes a secondary signal to the structured match.'
         : explanation.semantic.note_key === 'semantic_does_not_override_ineligibility'
           ? 'Semantic similarity does not override unmet required qualifications.'
-          : 'Semantic similarity is unavailable; the result uses the deterministic score.',
+          : 'Semantic similarity is unavailable; the base score uses structured matching.',
   }
 }

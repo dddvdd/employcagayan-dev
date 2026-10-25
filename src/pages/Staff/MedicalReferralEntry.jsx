@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { interviewService } from '../../services/interviewService'
 import { medicalService } from '../../services/medicalService'
 import { REFERRAL_STATUS, REFERRAL_STATUS_LABEL, REFERRAL_STATUS_BADGE } from '../../domain/statuses'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 const SERVICE_BADGE = {
   green: 'bg-emerald-100 text-emerald-800',
@@ -19,7 +20,7 @@ const SERVICE_BADGE = {
 }
 
 // ----- Pixel design tokens (shared with scanner/calendar/supervisor pages) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
+const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow dark:border-slate-700 dark:bg-slate-900'
 const BTN = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border-2 border-slate-900 px-4 font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
 const BTN_MINI = 'inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 px-3 text-xs font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
 
@@ -34,6 +35,7 @@ export default function MedicalReferralEntry() {
   const [referralsByReg, setReferralsByReg] = useState({})
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   const [createLog, setCreateLog] = useState(null)
   const [createServiceIds, setCreateServiceIds] = useState([])
@@ -51,6 +53,7 @@ export default function MedicalReferralEntry() {
   const [viewRef, setViewRef] = useState(null)
 
   async function loadReferrals() {
+    setLoadError('')
     try {
       const rows = await medicalService.listReferrals()
       const map = {}
@@ -62,7 +65,7 @@ export default function MedicalReferralEntry() {
       })
       setReferralsByReg(map)
     } catch (err) {
-      toast.error(`Could not load referrals: ${err.message}`)
+      setLoadError(err.message || 'Could not load referrals.')
     }
   }
 
@@ -84,8 +87,10 @@ export default function MedicalReferralEntry() {
         setLoading(false)
         await loadReferrals()
       } catch (err) {
-        toast.error(`Could not load: ${err.message}`)
-        if (alive) setLoading(false)
+        if (alive) {
+          setLoadError(err.message || 'Could not load medical referrals.')
+          setLoading(false)
+        }
       }
     }
     loadData()
@@ -210,14 +215,14 @@ export default function MedicalReferralEntry() {
     }
   }
 
-  const inputCls = 'w-full min-h-[44px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
+  const inputCls = 'w-full min-h-[44px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
   return (
     <div className="space-y-6">
       <div>
         <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700">Medical Services</p>
-        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">Medical Referrals</h1>
-        <p className="mt-1 text-sm text-slate-600">HOTS applicants and their referral status. Referrals are only created with services selected — one referral per applicant.</p>
+        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-slate-100">Medical Referrals</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">HOTS applicants and their referral status. Referrals are only created with services selected — one referral per applicant.</p>
       </div>
 
       <div className={`p-4 sm:p-6 ${PANEL}`}>
@@ -233,6 +238,7 @@ export default function MedicalReferralEntry() {
           HOTS applicants & referrals ({rows.length})
         </p>
 
+        {loadError && <div role="alert" className="mt-4 rounded-xl border-2 border-red-800 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"><p className="font-semibold">Referral data is incomplete.</p><p className="mt-1">{loadError}</p><button type="button" onClick={() => window.location.reload()} className="mt-3 min-h-11 rounded-lg border-2 border-red-900 bg-white px-4 font-bold text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300 dark:bg-slate-900 dark:text-slate-100">Reload referrals</button></div>}
         {loading ? (
           <div className="py-6 text-center" role="status">
             <div className="flex items-center justify-center gap-1.5" aria-hidden>
@@ -242,7 +248,7 @@ export default function MedicalReferralEntry() {
             </div>
             <p className="mt-2 font-mono text-xs font-bold uppercase tracking-widest text-slate-400">Loading…</p>
           </div>
-        ) : rows.length === 0 ? (
+        ) : loadError ? null : rows.length === 0 ? (
           <div className="py-8 text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-widest text-slate-400">No HOTS Applicants Found</p>
             <p className="mt-1 text-sm text-slate-500">Record a HOTS interview first — referred applicants will appear here.</p>
@@ -253,14 +259,14 @@ export default function MedicalReferralEntry() {
               const r = log.registrants || {}
               const srv = referral ? servicesOf(referral) : []
               return (
-                <div key={log.id} className="rounded-xl border-2 border-slate-900 bg-white p-4 pixel-shadow-sm">
+                <div key={log.id} className="rounded-xl border-2 border-slate-900 bg-white p-4 pixel-shadow-sm dark:border-slate-700 dark:bg-slate-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-bold text-slate-900">
+                      <p className="font-bold text-slate-900 dark:text-slate-100">
                         {[r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' ')}
                         <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">HOTS</span>
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         <span className="font-mono font-semibold text-blue-700">{r.unique_id}</span>
                         {' · '}{log.position} — {log.company} · {log.events?.event_name || 'No event'}
                         {' · '}{format(new Date(log.interview_date), 'MMM d, yyyy')}
@@ -289,14 +295,14 @@ export default function MedicalReferralEntry() {
                       )}
                       {referral && referral.status !== REFERRAL_STATUS.COMPLETED && (
                         <>
-                          <button onClick={() => openEdit(referral)} className={`${BTN_MINI} bg-white text-slate-700`}>Edit</button>
+                        <button onClick={() => openEdit(referral)} className={`${BTN_MINI} bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}>Edit</button>
                           {referral.status !== REFERRAL_STATUS.CANCELLED && (
                             <button onClick={() => setCancelRef(referral)} className={`${BTN_MINI} bg-red-600 text-white`}>Cancel</button>
                           )}
                         </>
                       )}
                       {referral && referral.status === REFERRAL_STATUS.COMPLETED && (
-                        <button onClick={() => setViewRef(referral)} className={`${BTN_MINI} bg-white text-slate-700`}>View</button>
+                        <button onClick={() => setViewRef(referral)} className={`${BTN_MINI} bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}>View</button>
                       )}
                     </div>
                   </div>
@@ -309,10 +315,9 @@ export default function MedicalReferralEntry() {
 
       {/* Create modal */}
       {createLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setCreateLog(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Create medical referral" className={`${PANEL} max-h-[90dvh] w-full max-w-md overflow-y-auto p-6`} onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={() => setCreateLog(null)} closeDisabled={submitting} labelledBy="create-referral-title" className={`${PANEL} max-w-md`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">Create Referral</h3>
+              <h2 id="create-referral-title" className="text-lg font-black uppercase tracking-wide text-slate-900">Create Referral</h2>
               <button onClick={() => setCreateLog(null)} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">×</button>
             </div>
             <p className="mb-3 text-xs text-slate-500">
@@ -344,16 +349,14 @@ export default function MedicalReferralEntry() {
                 {submitting ? 'Saving...' : 'Create Referral'}
               </button>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Edit modal */}
       {editRef && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setEditRef(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Edit referral" className={`${PANEL} max-h-[90dvh] w-full max-w-md overflow-y-auto p-6`} onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={() => setEditRef(null)} closeDisabled={savingEdit} labelledBy="edit-referral-title" className={`${PANEL} max-w-md`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">Edit Referral</h3>
+              <h2 id="edit-referral-title" className="text-lg font-black uppercase tracking-wide text-slate-900">Edit Referral</h2>
               <button onClick={() => setEditRef(null)} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">×</button>
             </div>
             <p className="mb-3 text-xs text-slate-500">
@@ -391,15 +394,13 @@ export default function MedicalReferralEntry() {
             <button onClick={saveEdit} disabled={savingEdit} className={`${BTN} mt-4 w-full bg-amber-400 text-slate-900 disabled:opacity-50`}>
               {savingEdit ? 'Saving...' : 'Save Changes'}
             </button>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Cancel confirm modal */}
       {cancelRef && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setCancelRef(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Cancel referral" className={`${PANEL} w-full max-w-sm p-6`} onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">Cancel Referral?</h3>
+        <AccessibleDialog open onClose={() => setCancelRef(null)} closeDisabled={cancelling} labelledBy="cancel-referral-title" className={`${PANEL} max-w-sm`}>
+            <h2 id="cancel-referral-title" className="text-lg font-black uppercase tracking-wide text-slate-900">Cancel Referral?</h2>
             <p className="mt-2 text-sm text-slate-600">
               Cancel the referral for{' '}
               <strong>{[cancelRef.registrants?.first_name, cancelRef.registrants?.middle_name, cancelRef.registrants?.last_name].filter(Boolean).join(' ')}</strong>{' '}
@@ -411,16 +412,14 @@ export default function MedicalReferralEntry() {
                 {cancelling ? 'Cancelling...' : 'Cancel Referral'}
               </button>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* View modal (completed referrals) */}
       {viewRef && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setViewRef(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Referral details" className={`${PANEL} w-full max-w-md p-6`} onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={() => setViewRef(null)} labelledBy="view-referral-title" className={`${PANEL} max-w-md`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">Referral Details</h3>
+              <h2 id="view-referral-title" className="text-lg font-black uppercase tracking-wide text-slate-900">Referral Details</h2>
               <button onClick={() => setViewRef(null)} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">×</button>
             </div>
             <div className="space-y-3 text-sm">
@@ -441,8 +440,7 @@ export default function MedicalReferralEntry() {
               <Detail label="Created" value={viewRef.created_at ? format(new Date(viewRef.created_at), 'MMM d, yyyy h:mm a') : '—'} />
               <Detail label="Notes" value={viewRef.notes || '—'} />
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

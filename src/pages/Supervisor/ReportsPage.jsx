@@ -1,9 +1,9 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { eventTypeDisplay } from '../../domain/eventTypes'
-import Papa from 'papaparse'
 import { supervisorService } from '../../services/supervisorService'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
@@ -26,6 +26,7 @@ export default function ReportsPage() {
   const [referrals, setReferrals] = useState([])
   const [vacancies, setVacancies] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState('municipality')
 
   const isProvincial = profile?.is_provincial === true
@@ -44,6 +45,7 @@ export default function ReportsPage() {
 
   const fetchAllData = useCallback(async (visibleEventIds) => {
     setLoading(true)
+    setLoadError('')
     try {
       const data = await supervisorService.fetchReportData({ selectedEvent, visibleEventIds })
       setRegistrants(data.registrants)
@@ -52,7 +54,7 @@ export default function ReportsPage() {
       setVacancies(data.vacancies)
     } catch (err) {
       console.error('Failed to load report data:', err)
-      toast.error('Failed to load report data')
+      setLoadError(err.message || 'Failed to load report data.')
     } finally {
       setLoading(false)
     }
@@ -145,7 +147,7 @@ export default function ReportsPage() {
   // ─── Export helpers ───
   function exportCsv(rows, fileName) {
     if (!rows || rows.length === 0) { toast.info('No data to export'); return }
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -203,11 +205,11 @@ export default function ReportsPage() {
     { key: 'demographics', label: 'Demographics' },
   ]
 
-  const inputCls = 'min-h-[44px] w-full rounded-lg border-2 border-slate-900 bg-white px-3 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-pink-300'
+  const inputCls = 'min-h-[44px] w-full rounded-lg border-2 border-slate-900 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-pink-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
   if (loading) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50" role="status">
+      <main className="grid min-h-screen place-items-center bg-slate-50 dark:bg-slate-950" role="status">
         <div className="text-center">
           <div className="flex items-center justify-center gap-1.5" aria-hidden>
             {[0, 1, 2].map(i => (
@@ -222,6 +224,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && <section role="alert" className="rounded-xl border-2 border-red-800 bg-red-50 p-6 dark:border-red-900 dark:bg-red-950"><h2 className="font-bold text-red-950 dark:text-red-100">Reports unavailable</h2><p className="mt-1 text-sm text-red-900 dark:text-red-200">{loadError}</p><button type="button" onClick={() => fetchAllData(events.map(event => event.id))} className="mt-4 min-h-11 rounded-lg border-2 border-red-900 bg-white px-4 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300 dark:bg-slate-900 dark:text-slate-100">Try again</button></section>}
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>

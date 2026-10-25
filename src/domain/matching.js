@@ -1,3 +1,6 @@
+import {findQualification} from './qualificationIdentity.js'
+import {experienceEvidence,educationEvidence} from './qualificationEvidence.js'
+import {reviewVacancyRequirements} from './vacancyRequirementReadiness.js'
 // Weighted Matching & Ranking Engine (Phase 3B)
 // Pure, deterministic, transparent fit scoring and ranking.
 // NO embeddings, NO semantic vectors, NO LLM inference.
@@ -9,7 +12,7 @@ import {
   SKILL_PROFICIENCY_MAP,
 } from './eligibility.js'
 
-export const MODEL_VERSION = 'deterministic-v1'
+export const MODEL_VERSION = 'deterministic-v3-canonical'
 
 export const MATCHING_WEIGHTS_V1 = Object.freeze({
   occupation: 20,
@@ -43,6 +46,7 @@ export const MATCHING_REASON_CODES = Object.freeze({
   SKILL_PARTIAL_COVERAGE: 'SKILL_PARTIAL_COVERAGE',
   SKILL_NO_REQUIREMENT: 'SKILL_NO_REQUIREMENT',
   SKILL_DATA_UNKNOWN: 'SKILL_DATA_UNKNOWN',
+  SKILL_TEXT_REQUIREMENT_UNRESOLVED: 'SKILL_TEXT_REQUIREMENT_UNRESOLVED',
 
   // Experience
   EXPERIENCE_MEETS_MINIMUM: 'EXPERIENCE_MEETS_MINIMUM',
@@ -63,6 +67,7 @@ export const MATCHING_REASON_CODES = Object.freeze({
   CERTIFICATION_PREFERRED_MATCH: 'CERTIFICATION_PREFERRED_MATCH',
   CERTIFICATION_PREFERRED_MISSING: 'CERTIFICATION_PREFERRED_MISSING',
   CERTIFICATION_NO_REQUIREMENT: 'CERTIFICATION_NO_REQUIREMENT',
+  CERTIFICATION_TEXT_REQUIREMENT_UNRESOLVED: 'CERTIFICATION_TEXT_REQUIREMENT_UNRESOLVED',
 
   // Languages
   LANGUAGE_STRONG_MATCH: 'LANGUAGE_STRONG_MATCH',
@@ -109,40 +114,20 @@ function clamp(value, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value))
 }
 
-function calculateWorkExperienceMonths(workExperiences, { occupationId, industryId } = {}) {
-  if (!Array.isArray(workExperiences) || workExperiences.length === 0) return 0
-  const now = new Date()
-  let totalMonths = 0
-
-  for (const exp of workExperiences) {
-    if (occupationId && exp.occupation_id && exp.occupation_id !== occupationId) continue
-    if (industryId && exp.industry_id && exp.industry_id !== industryId) continue
-
-    if (!exp.start_date) continue
-    const start = new Date(`${exp.start_date.slice(0, 7)}-01T00:00:00`)
-    const end = (exp.is_current || !exp.end_date)
-      ? new Date(now.getFullYear(), now.getMonth(), 1)
-      : new Date(`${exp.end_date.slice(0, 7)}-01T00:00:00`)
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) continue
-    const months = ((end.getFullYear() - start.getFullYear()) * 12) + end.getMonth() - start.getMonth() + 1
-    totalMonths += Math.max(0, months)
-  }
-
-  return totalMonths
-}
-
 /**
  * Evaluates the 12 structured matching dimensions for an eligible or conditionally eligible pair.
  */
 export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = null, options = {}) {
   const eligibility = eligibilityResult || evaluateEligibility(jobseeker, vacancy, options)
-  const weights = options.weights || MATCHING_WEIGHTS_V1
+  const weights = {...MATCHING_WEIGHTS_V1,...(options.deterministicWeights||options.weights||{})}
+  if(Object.entries(weights).some(([key,value])=>!(key in MATCHING_WEIGHTS_V1)||!Number.isFinite(value)||value<0))throw new RangeError('Invalid deterministic weights')
+  const currentDate=options.currentDate || eligibility.evaluated_at
 
   const dimensions = []
   const strengths = []
   const gaps = []
   const unknowns = []
+  const unresolvedRequirements = reviewVacancyRequirements(vacancy)
 
   // -------------------------------------------------------------
   // 1. OCCUPATION (Weight: 20)
@@ -218,7 +203,13 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
     const reasonCodes = []
     const evidence = { vacancy_skills_count: vacSkills.length, candidate_skills_count: candSkills.length }
 
-    if (vacSkills.length === 0) {
+    // Completeness of the skills dimension is unknown while any mandatory text is unresolved.
+    const unresolvedSkillText = unresolvedRequirements.length > 0
+    if (unresolvedSkillText) {
+      status = 'unknown'
+      reasonCodes.push(MATCHING_REASON_CODES.SKILL_TEXT_REQUIREMENT_UNRESOLVED)
+      unknowns.push('Vacancy free text may contain an unstructured mandatory skill or qualification')
+    } else if (vacSkills.length === 0) {
       rawScore = 1.0
       status = 'not_applicable'
       evaluable = true
@@ -238,10 +229,7 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
         const mult = vs.importance === 'required' ? 3.0 : (vs.importance === 'preferred' ? 1.5 : 1.0)
         totalMultiplier += mult
 
-        const matched = candSkills.find(cs =>
-          (vs.skill_id && cs.skill_id === vs.skill_id) ||
-          (vs.canonical_name && cs.canonical_name && cs.canonical_name.toLowerCase() === vs.canonical_name.toLowerCase())
-        )
+        const matched = findQualification(candSkills,vs,'skill_id')
 
         if (matched) {
           let itemScore = 1.0
@@ -293,7 +281,6 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
   {
     const weight = weights.experience ?? 10
     const expReqs = Array.isArray(vacancy.experience_requirements) ? vacancy.experience_requirements : []
-    const workExps = Array.isArray(jobseeker.work_experiences) ? jobseeker.work_experiences : []
 
     let rawScore = null
     let status = 'match'
@@ -313,10 +300,8 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
         if ((r.minimum_months ?? 0) > requiredMonths) requiredMonths = r.minimum_months
       }
 
-      let candMonths = calculateWorkExperienceMonths(workExps)
-      if (candMonths === 0 && jobseeker.years_of_experience) {
-        candMonths = Number(jobseeker.years_of_experience) * 12
-      }
+      const requirement=expReqs.find(row=>row.minimum_months===requiredMonths)||{}
+      const candMonths=experienceEvidence(jobseeker,{occupationId:requirement.occupation_id,industryId:requirement.industry_id,currentDate}).months
       evidence.required_months = requiredMonths
       evidence.candidate_months = candMonths
 
@@ -356,7 +341,6 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
   {
     const weight = weights.education ?? 8
     const eduReqs = Array.isArray(vacancy.education_requirements) ? vacancy.education_requirements : []
-    const candEdus = Array.isArray(jobseeker.education) ? jobseeker.education : []
 
     let rawScore = null
     let status = 'match'
@@ -381,15 +365,9 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
         }
       }
 
-      let candRank = 0
-      let candFos = null
-      for (const e of candEdus) {
-        const rk = e.rank ?? DEFAULT_EDUCATION_RANKS[e.level_code] ?? 0
-        if (rk > candRank) {
-          candRank = rk
-          candFos = e.field_of_study || e.course_program
-        }
-      }
+      const education=educationEvidence(jobseeker)
+      const candRank=education.rank
+      const candFos=education.best?.field_of_study || education.best?.course_program
 
       evidence.required_rank = reqRank
       evidence.candidate_rank = candRank
@@ -442,7 +420,11 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
     const reasonCodes = []
     const evidence = { vacancy_cert_count: certReqs.length, candidate_cert_count: candCerts.length }
 
-    if (certReqs.length === 0) {
+    if (unresolvedRequirements.some(warning => warning.kind === 'certificate')) {
+      status = 'unknown'
+      reasonCodes.push(MATCHING_REASON_CODES.CERTIFICATION_TEXT_REQUIREMENT_UNRESOLVED)
+      unknowns.push('Vacancy free text may contain an unstructured mandatory certificate')
+    } else if (certReqs.length === 0) {
       rawScore = 1.0
       status = 'not_applicable'
       evaluable = true
@@ -451,10 +433,7 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
       evaluable = true
       let matchedCount = 0
       for (const vc of certReqs) {
-        const found = candCerts.find(cc =>
-          (vc.certification_id && cc.certification_id === vc.certification_id) ||
-          (vc.canonical_name && cc.canonical_name && cc.canonical_name.toLowerCase() === vc.canonical_name.toLowerCase())
-        )
+        const found = findQualification(candCerts,vc,'certification_id')
         if (found) matchedCount++
       }
 
@@ -507,11 +486,7 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
       evaluable = true
       let earned = 0
       for (const vl of langReqs) {
-        const found = candLangs.find(cl =>
-          (vl.language_id && cl.language_id === vl.language_id) ||
-          (vl.code && cl.code && cl.code.toLowerCase() === vl.code.toLowerCase()) ||
-          (vl.name && cl.name && cl.name.toLowerCase() === vl.name.toLowerCase())
-        )
+        const found = findQualification(candLangs,vl,'language_id',{label:'name',code:'code'})
         if (found) {
           earned += 1.0
         }
@@ -870,6 +845,31 @@ export function scoreMatch(jobseeker = {}, vacancy = {}, eligibilityResult = nul
   // -------------------------------------------------------------
   // AGGREGATE SCORES
   // -------------------------------------------------------------
+  // Missing requirements are evidence for review, not measured mismatches.
+  const missingCodes=new Set(['EDUCATION_DATA_MISSING','EXPERIENCE_DATA_MISSING',
+    'REQUIRED_SKILL_MISSING','PREFERRED_SKILL_MISSING','REQUIRED_CERTIFICATION_MISSING',
+    'PREFERRED_CERTIFICATION_MISSING','LANGUAGE_DATA_MISSING','CERTIFICATION_VALIDITY_UNKNOWN',
+    'SKILL_PROFICIENCY_UNKNOWN','SKILL_EXPERIENCE_UNKNOWN','LANGUAGE_PROFICIENCY_UNKNOWN','QUALIFICATION_UNVERIFIED'])
+  for(const name of ['education','experience','skills','certifications','languages']){
+    const dimension=dimensions.find(row=>row.dimension===name)
+    const checks=eligibility.checks.filter(row=>row.category===name)
+    const unknown=checks.filter(row=>row.status==='unknown'||missingCodes.has(row.code))
+    const failed=checks.some(row=>row.status==='fail')
+    dimension.evidence.requirement_checks=checks.map(row=>({code:row.code,status:row.status,importance:row.importance}))
+    if(unknown.length){
+      dimension.status='unknown';dimension.evaluable=false
+      dimension.raw_score=null;dimension.weighted_score=0
+      dimension.reason_codes=unknown.map(row=>row.code)
+      unknowns.push(name+' evidence requires review')
+    }else if(failed && dimension.raw_score===1){
+      dimension.status='mismatch';dimension.raw_score=0;dimension.weighted_score=0
+    }
+    if(unknown.length||failed){
+      const term=name==='education'?/degree|education/i:new RegExp(name.replace(/s$/,''),'i')
+      for(let i=strengths.length-1;i>=0;i--)if(term.test(strengths[i]))strengths.splice(i,1)
+    }
+  }
+
   const totalConfiguredWeight = Object.values(weights).reduce((sum, w) => sum + w, 0)
   const evaluableWeight = dimensions
     .filter(d => d.evaluable)

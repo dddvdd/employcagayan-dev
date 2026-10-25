@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 import { useStaffEventsAnyStatus } from '../../hooks/events/useEvents'
 import { registrantService } from '../../services/registrantService'
 import { checkInService } from '../../services/checkInService'
@@ -17,17 +18,19 @@ const INTERVIEW_STATUSES = [
 ]
 
 // ----- Pixel design tokens (shared with scanner/calendar pages) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
+const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow dark:border-slate-700 dark:bg-slate-900'
 const BTN_MINI = 'inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 px-3 text-xs font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
-const INPUT = 'min-h-[48px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
+const INPUT = 'min-h-[48px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus-visible:ring-4 focus-visible:ring-amber-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
 export default function ManualSearchPage() {
-  const { events } = useStaffEventsAnyStatus()
+  const { events, error: eventsError, retry: retryEvents } = useStaffEventsAnyStatus()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [selectedEvent, setSelectedEvent] = useState('all')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [actionId, setActionId] = useState(null)
+  const requestIdRef = useRef(0)
 
   // Interview result modal state
   const [interviewReg, setInterviewReg] = useState(null)
@@ -42,9 +45,11 @@ export default function ManualSearchPage() {
 
   useEffect(() => {
     let alive = true
+    const requestId = ++requestIdRef.current
     registrantService.listAll()
-      .then((rows) => { if (alive) setResults(rows || []) })
-      .catch(() => { if (alive) setResults([]) })
+      .then((rows) => { if (alive && requestId === requestIdRef.current) { setResults(rows || []); setLoadError('') } })
+      .catch((err) => { if (alive && requestId === requestIdRef.current) setLoadError(err.message || 'Registrants could not be loaded.') })
+      .finally(() => { if (alive && requestId === requestIdRef.current) setLoading(false) })
     return () => { alive = false }
   }, [])
 
@@ -52,25 +57,44 @@ export default function ManualSearchPage() {
     e.preventDefault()
     const q = query.trim()
     if (!q) return
+    const requestId = ++requestIdRef.current
     setLoading(true)
+    setLoadError('')
     try {
       const rows = selectedEvent === 'all'
         ? await registrantService.search(q)
         : await registrantService.searchForEvent(selectedEvent, q)
-      setResults(rows || [])
-      if (!rows?.length) toast.info('No matching registrants found.')
+      if (requestId === requestIdRef.current) {
+        setResults(rows || [])
+        if (!rows?.length) toast.info('No matching registrants found.')
+      }
     } catch (err) {
-      toast.error(`Search failed: ${err.message}`)
+      if (requestId === requestIdRef.current) setLoadError(`Search failed: ${err.message}`)
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }
 
-  function refreshResultsForEvent(eventId) {
-    const promise = eventId === 'all'
-      ? registrantService.listAll()
-      : registrantService.listForEvent(eventId)
-    promise.then((rows) => setResults(rows || [])).catch(() => setResults([]))
+  async function refreshResultsForEvent(eventId) {
+    const requestId = ++requestIdRef.current
+    const q = query.trim()
+    const promise = q
+      ? eventId === 'all'
+        ? registrantService.search(q)
+        : registrantService.searchForEvent(eventId, q)
+      : eventId === 'all'
+        ? registrantService.listAll()
+        : registrantService.listForEvent(eventId)
+    setLoading(true)
+    setLoadError('')
+    try {
+      const rows = await promise
+      if (requestId === requestIdRef.current) setResults(rows || [])
+    } catch (err) {
+      if (requestId === requestIdRef.current) setLoadError(err.message || 'Registrants could not be loaded.')
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false)
+    }
   }
 
   async function handleQuickCheckin(registrantId) {
@@ -185,9 +209,11 @@ export default function ManualSearchPage() {
     <div className="space-y-6">
       <div>
         <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700">Registrant Lookup</p>
-        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">Manual Search</h1>
-        <p className="mt-1 text-sm text-slate-600">Search by applicant name, unique ID, email address, or contact number.</p>
+        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-slate-100">Manual Search</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Search by applicant name, unique ID, email address, or contact number.</p>
       </div>
+
+      {eventsError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>Event choices couldn’t be loaded. Event filtering may be unavailable.</p><button type="button" onClick={retryEvents} className="mt-2 min-h-10 font-semibold underline">Reload events</button></div>}
 
       {/* Search + Event Filter */}
       <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
@@ -215,7 +241,7 @@ export default function ManualSearchPage() {
           disabled={loading || !query.trim()}
           className="inline-flex min-h-[48px] items-center justify-center rounded-lg border-2 border-slate-900 bg-amber-400 px-6 text-sm font-black uppercase tracking-wide text-slate-900 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300"
         >
-          {loading ? 'Searching...' : 'Search'}
+          {loading ? (query.trim() ? 'Searching...' : 'Loading…') : 'Search'}
         </button>
       </form>
 
@@ -226,8 +252,15 @@ export default function ManualSearchPage() {
             Registrants <span className="ml-1 font-normal text-slate-400">({results.length})</span>
           </h2>
         </div>
+        {loadError && <div role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+          <p className="font-semibold">{loadError.startsWith('Search failed:') ? 'Search could not be completed' : 'Registrants could not be loaded'}</p>
+          <p className="mt-1">{loadError}</p>
+          <button type="button" onClick={() => refreshResultsForEvent(selectedEvent)} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+        </div>}
         <div className="space-y-2">
-          {results.length === 0 ? (
+          {loading ? (
+            <div className={`${PANEL} px-6 py-8 text-center text-sm text-slate-500`} role="status">Loading registrants…</div>
+          ) : loadError ? null : results.length === 0 ? (
             <div className={`${PANEL} px-6 py-8 text-center`}>
               <p className="font-mono text-xs font-bold uppercase tracking-widest text-slate-400">No Registrants Found</p>
               <p className="mt-1 text-sm text-slate-500">Try a different search term, or register the applicant as a walk-in.</p>
@@ -240,12 +273,12 @@ export default function ManualSearchPage() {
               return (
                 <div
                   key={reg.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border-2 border-slate-900 bg-white p-4 pixel-shadow-sm"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border-2 border-slate-900 bg-white p-4 pixel-shadow-sm dark:border-slate-700 dark:bg-slate-900"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-slate-900">{name}</h3>
-                      <span className="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                      <h3 className="font-bold text-slate-900 dark:text-slate-100">{name}</h3>
+                      <span className="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded dark:bg-blue-950 dark:text-blue-300">
                         {reg.unique_id}
                       </span>
                       <span
@@ -256,7 +289,7 @@ export default function ManualSearchPage() {
                         {reg.check_in_status.replace('_', ' ')}
                       </span>
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                       <span>{reg.email || 'No email'}</span>
                       <span>{reg.contact_no || 'No contact'}</span>
                       <span>{reg.events?.event_name || 'Job Fair'}</span>
@@ -269,7 +302,7 @@ export default function ManualSearchPage() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Link
                       to={`/staff/checkin/${reg.id}`}
-                      className={`${BTN_MINI} bg-white text-slate-700`}
+                      className={`${BTN_MINI} bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                     >
                       Details
                     </Link>
@@ -301,17 +334,16 @@ export default function ManualSearchPage() {
 
       {/* Interview Result modal */}
       {interviewReg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setInterviewReg(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Interview result" className={`${PANEL} max-h-[90dvh] w-full max-w-md overflow-y-auto p-6`} onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={() => setInterviewReg(null)} closeDisabled={interviewSubmitting} labelledBy="interview-result-title" className={`${PANEL} max-w-md`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black uppercase tracking-wide text-slate-900">Interview Result</h3>
+              <h2 id="interview-result-title" className="text-lg font-black uppercase tracking-wide text-slate-900">Interview Result</h2>
               <button onClick={() => setInterviewReg(null)} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-xl leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">Ã—</button>
             </div>
 
             {/* Applicant */}
-            <div className="mb-4 rounded-xl bg-slate-50 p-4">
+            <div className="mb-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-800">
               <p className="text-xs font-medium text-slate-500">Applicant</p>
-              <p className="text-lg font-bold text-slate-900">
+              <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
                 {[interviewReg.first_name, interviewReg.middle_name, interviewReg.last_name].filter(Boolean).join(' ')}
               </p>
               <p className="font-mono text-xs font-semibold text-blue-700">
@@ -380,7 +412,7 @@ export default function ManualSearchPage() {
                       {interviewLogs.map(log => (
                         <div key={log.id} className="rounded-xl border border-slate-200 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{log.company}</p>
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{log.company}</p>
                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${INTERVIEW_STATUS_BADGE[log.interview_status] || 'bg-slate-100 text-slate-700'}`}>
                               {INTERVIEW_STATUSES.find(s => s.value === log.interview_status)?.label || log.interview_status}
                             </span>
@@ -415,8 +447,7 @@ export default function ManualSearchPage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

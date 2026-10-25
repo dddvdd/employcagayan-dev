@@ -1,3 +1,8 @@
+import {reviewedSkillMatchingService} from './reviewedSkillMatchingService.js'
+import {SEMANTIC_VERSIONS} from '../domain/semanticVersions.js'
+import {semanticResult} from '../domain/semanticProtocol.js'
+import {computeSourceBoundHybridScore,matchingSignalPair,withMatchSourceRetry,SOURCE_BOUND_HYBRID_VERSION} from '../domain/matchingSignals.js'
+import {matchingSignalService} from './matchingSignalService.js'
 // Semantic Matching Service (Phase 4B)
 // Integrates deterministic scoring with semantic similarity.
 // Handles embedding retrieval, fallback, and hybrid ranking.
@@ -14,11 +19,7 @@ import {
   MODEL_VERSION as DETERMINISTIC_MODEL_VERSION,
 } from '../domain/matching'
 import {
-  computeHybridScore,
   rankHybridMatches,
-  normalizeSemanticScore,
-  deriveSemanticStatus,
-  HYBRID_MODEL_VERSION,
   SEMANTIC_MODEL_VERSION,
   HYBRID_WEIGHTS_V1,
   SEMANTIC_STATUS,
@@ -52,103 +53,17 @@ function deterministicResult(result, includeDimensions = false) {
  * @param {Object} [options] - { embeddingVersion }
  * @returns {Promise<Object|null>} { similarity, score, status } or null
  */
-export async function getSemanticSimilarity(jobseekerProfileId, vacancyId, options = {}) {
-  try {
-    // Load embeddings for both entities
-    const [jobseekerEmb, vacancyEmb] = await Promise.all([
-      supabase
-        .from('employment_embeddings')
-        .select('embedding, status, embedding_version, generated_at')
-        .eq('entity_type', 'jobseeker_profile')
-        .eq('entity_id', jobseekerProfileId)
-        .eq('embedding_type', 'jobseeker_match_profile')
-        .eq('embedding_version', options.embeddingVersion || 'jobseeker-semantic-v1')
-        .in('status', ['current', 'stale'])
-        .maybeSingle(),
-      supabase
-        .from('employment_embeddings')
-        .select('embedding, status, embedding_version, generated_at')
-        .eq('entity_type', 'vacancy')
-        .eq('entity_id', vacancyId)
-        .eq('embedding_type', 'vacancy_match_profile')
-        .eq('embedding_version', options.embeddingVersion || 'vacancy-semantic-v1')
-        .in('status', ['current', 'stale'])
-        .maybeSingle(),
-    ])
-
-    // Check for errors
-    if (jobseekerEmb.error || vacancyEmb.error) {
-      return { similarity: null, score: null, status: SEMANTIC_STATUS.FAILED }
-    }
-
-    const jobseekerData = jobseekerEmb.data
-    const vacancyData = vacancyEmb.data
-
-    // Derive status from both embeddings
-    const jobseekerStatus = deriveSemanticStatus(jobseekerData)
-    const vacancyStatus = deriveSemanticStatus(vacancyData)
-
-    // If either is missing or failed, return appropriate status
-    if (jobseekerStatus === SEMANTIC_STATUS.MISSING || vacancyStatus === SEMANTIC_STATUS.MISSING) {
-      return { similarity: null, score: null, status: SEMANTIC_STATUS.MISSING }
-    }
-    if (jobseekerStatus === SEMANTIC_STATUS.FAILED || vacancyStatus === SEMANTIC_STATUS.FAILED) {
-      return { similarity: null, score: null, status: SEMANTIC_STATUS.FAILED }
-    }
-    if (jobseekerStatus === SEMANTIC_STATUS.STALE || vacancyStatus === SEMANTIC_STATUS.STALE) {
-      return { similarity: null, score: null, status: SEMANTIC_STATUS.STALE }
-    }
-
-    // Both embeddings are current - compute cosine similarity
-    const jobseekerVector = jobseekerData.embedding
-    const vacancyVector = vacancyData.embedding
-
-    if (!jobseekerVector || !vacancyVector) {
-      return { similarity: null, score: null, status: SEMANTIC_STATUS.MISSING }
-    }
-
-    // Compute cosine similarity
-    const similarity = computeCosineSimilarity(jobseekerVector, vacancyVector)
-    const score = normalizeSemanticScore(similarity)
-
-    return {
-      similarity: Math.round(similarity * 10000) / 10000,
-      score,
-      status: SEMANTIC_STATUS.AVAILABLE,
-      embedding_version: `${SEMANTIC_MODEL_VERSION}/${jobseekerData.embedding_version}+${vacancyData.embedding_version}`,
-    }
-  } catch (error) {
-    console.warn('Semantic similarity retrieval failed:', error.message)
-    return { similarity: null, score: null, status: SEMANTIC_STATUS.FAILED }
-  }
+export async function getSemanticSimilarity(jobseekerProfileId,vacancyId,options={}){
+ try{
+  const {data,error}=await supabase.rpc('get_pair_semantic_similarity',{
+   p_jobseeker_profile_id:jobseekerProfileId,p_vacancy_definition_id:vacancyId,
+   p_event_vacancy_id:options.eventVacancyId||null,
+   p_jobseeker_embedding_version:options.jobseekerEmbeddingVersion||options.embeddingVersion||SEMANTIC_VERSIONS.JOBSEEKER,
+   p_vacancy_embedding_version:options.vacancyEmbeddingVersion||options.embeddingVersion||SEMANTIC_VERSIONS.VACANCY,
+  })
+  return semanticResult(error?null:data)
+ }catch{return semanticResult(null)}
 }
-
-/**
- * Computes cosine similarity between two vectors.
- * 
- * @param {number[]} vecA - First vector
- * @param {number[]} vecB - Second vector
- * @returns {number} Cosine similarity in [-1, 1]
- */
-function computeCosineSimilarity(vecA, vecB) {
-  if (!vecA || !vecB || vecA.length !== vecB.length) return 0
-
-  let dotProduct = 0
-  let normA = 0
-  let normB = 0
-
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i]
-    normA += vecA[i] * vecA[i]
-    normB += vecB[i] * vecB[i]
-  }
-
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
-  if (denominator === 0) return 0
-
-  return dotProduct / denominator
-}
-
 /**
  * Hybrid ranking for jobseekers against vacancies.
  * Combines deterministic eligibility + scoring with semantic similarity.
@@ -157,7 +72,7 @@ function computeCosineSimilarity(vecA, vecB) {
  * @param {Object} [options] - { eventId, vacancyDefinitionIds, includeIneligible, weights }
  * @returns {Promise<Array<Object>>} Hybrid-ranked vacancies
  */
-export async function rankVacanciesHybrid(jobseekerProfileId, options = {}) {
+async function rankVacanciesHybridAttempt(jobseekerProfileId, options = {}) {
   // Step 1: Load profiles
   const [jobseeker, vacancies] = await Promise.all([
     getJobseekerMatchProfile(jobseekerProfileId),
@@ -183,15 +98,14 @@ export async function rankVacanciesHybrid(jobseekerProfileId, options = {}) {
   )
 
   // Step 4: Get semantic similarity for eligible pairs
+  const knowledge=await reviewedSkillMatchingService.load(eligibleResults.map(result=>result.vacancy))
+  const pairs=eligibleResults.map(result=>matchingSignalPair(jobseeker,result.vacancy,result.vacancy.event_vacancy_id||options.eventVacancyId||null,options))
+  const frames=await matchingSignalService.load(pairs,{knowledge,vacancies:eligibleResults.map(r=>r.vacancy)})
   const hybridResults = await Promise.all(
-    eligibleResults.map(async result => {
-      const semantic = await getSemanticSimilarity(
-        jobseekerProfileId,
-        result.vacancy?.id,
-        options
-      )
+    eligibleResults.map(async (result,index) => {
+      const semantic = frames[index]?.semantic
 
-      const hybrid = computeHybridScore(result, semantic, { weights: options.weights })
+      const hybrid = computeSourceBoundHybridScore(result,frames[index],jobseeker,result.vacancy,knowledge,{weights:options.hybridWeights})
 
       return {
         vacancy: result.vacancy,
@@ -201,10 +115,11 @@ export async function rankVacanciesHybrid(jobseekerProfileId, options = {}) {
         ranking_score: result.ranking_score,
         deterministic: deterministicResult(result, options.includeExplanationContext),
         semantic: {
+          embedding_version: semantic?.embedding_version ?? null,
           model_version: SEMANTIC_MODEL_VERSION,
           status: semantic?.status || SEMANTIC_STATUS.MISSING,
-          similarity: semantic?.similarity || null,
-          score: semantic?.score || null,
+          similarity: semantic?.similarity ?? null,
+          score: semantic?.score ?? null,
         },
         hybrid,
       }
@@ -233,12 +148,7 @@ export async function rankVacanciesHybrid(jobseekerProfileId, options = {}) {
         similarity: null,
         score: null,
       },
-      hybrid: {
-        model_version: HYBRID_MODEL_VERSION,
-        score: r.ranking_score,
-        fallback: true,
-        reason_codes: [HYBRID_REASON_CODES.SEMANTIC_UNAVAILABLE, HYBRID_REASON_CODES.HYBRID_DETERMINISTIC_DOMINANT],
-      },
+      hybrid: computeSourceBoundHybridScore(r,null,jobseeker,r.vacancy,null,{weights:options.hybridWeights}),
     }))
     finalResults = [...rankedHybrid, ...ineligibleHybrid]
   }
@@ -256,7 +166,7 @@ export async function rankVacanciesHybrid(jobseekerProfileId, options = {}) {
  * @param {Object} [options] - { eventVacancyId, includeIneligible, weights }
  * @returns {Promise<Array<Object>>} Hybrid-ranked candidates
  */
-export async function rankCandidatesHybrid(vacancyDefinitionId, options = {}) {
+async function rankCandidatesHybridAttempt(vacancyDefinitionId, options = {}) {
   // Step 1: Load vacancy and authorized candidate pool
   const { getVacancyCandidateMatchProfiles } = await import('./matchingService')
   
@@ -295,15 +205,14 @@ export async function rankCandidatesHybrid(vacancyDefinitionId, options = {}) {
   )
 
   // Step 4: Get semantic similarity for eligible pairs
+  const knowledge=await reviewedSkillMatchingService.load(eligibleResults.length?[vacancy]:[])
+  const pairs=eligibleResults.map(result=>matchingSignalPair(result.jobseeker,vacancy,options.eventVacancyId||null,options))
+  const frames=await matchingSignalService.load(pairs,{knowledge,vacancies:eligibleResults.length?[vacancy]:[]})
   const hybridResults = await Promise.all(
-    eligibleResults.map(async result => {
-      const semantic = await getSemanticSimilarity(
-        result.jobseeker_profile_id,
-        vacancyDefinitionId,
-        options
-      )
+    eligibleResults.map(async (result,index) => {
+      const semantic = frames[index]?.semantic
 
-      const hybrid = computeHybridScore(result, semantic, { weights: options.weights })
+      const hybrid = computeSourceBoundHybridScore(result,frames[index],result.jobseeker,vacancy,knowledge,{weights:options.hybridWeights})
 
       return {
         candidate: result.candidate,
@@ -313,10 +222,11 @@ export async function rankCandidatesHybrid(vacancyDefinitionId, options = {}) {
         ranking_score: result.ranking_score,
         deterministic: deterministicResult(result, options.includeExplanationContext),
         semantic: {
+          embedding_version: semantic?.embedding_version ?? null,
           model_version: SEMANTIC_MODEL_VERSION,
           status: semantic?.status || SEMANTIC_STATUS.MISSING,
-          similarity: semantic?.similarity || null,
-          score: semantic?.score || null,
+          similarity: semantic?.similarity ?? null,
+          score: semantic?.score ?? null,
         },
         hybrid,
         ...(options.includeExplanationContext ? { jobseeker: result.jobseeker } : {}),
@@ -346,12 +256,7 @@ export async function rankCandidatesHybrid(vacancyDefinitionId, options = {}) {
         similarity: null,
         score: null,
       },
-      hybrid: {
-        model_version: HYBRID_MODEL_VERSION,
-        score: r.ranking_score,
-        fallback: true,
-        reason_codes: [HYBRID_REASON_CODES.SEMANTIC_UNAVAILABLE, HYBRID_REASON_CODES.HYBRID_DETERMINISTIC_DOMINANT],
-      },
+      hybrid: computeSourceBoundHybridScore(r,null,r.jobseeker,vacancy,null,{weights:options.hybridWeights}),
       ...(options.includeExplanationContext ? { jobseeker: r.jobseeker } : {}),
     }))
     finalResults = [...rankedHybrid, ...ineligibleHybrid]
@@ -370,7 +275,7 @@ export async function rankCandidatesHybrid(vacancyDefinitionId, options = {}) {
  * @param {Object} [options] - { eventVacancyId, weights }
  * @returns {Promise<Object>} Full hybrid result
  */
-export async function scorePairHybrid(jobseekerProfileId, vacancyDefinitionId, options = {}) {
+async function scorePairHybridAttempt(jobseekerProfileId, vacancyDefinitionId, options = {}) {
   const [jobseeker, vacancy] = await Promise.all([
     getJobseekerMatchProfile(jobseekerProfileId),
     getVacancyMatchProfile(vacancyDefinitionId, options.eventVacancyId || null),
@@ -379,29 +284,23 @@ export async function scorePairHybrid(jobseekerProfileId, vacancyDefinitionId, o
   const eligibility = evaluateEligibility(jobseeker, vacancy, options)
   const deterministic = scoreMatch(jobseeker, vacancy, eligibility, options)
 
-  const semantic = await getSemanticSimilarity(
-    jobseekerProfileId,
-    vacancyDefinitionId,
-    options
-  )
-
-  const hybrid = computeHybridScore(deterministic, semantic, { weights: options.weights })
+  const knowledge = await reviewedSkillMatchingService.load(eligibility.status === ELIGIBILITY_STATUS.INELIGIBLE ? [] : [vacancy])
+  const frames=eligibility.status===ELIGIBILITY_STATUS.INELIGIBLE?[]:await matchingSignalService.load([
+    matchingSignalPair(jobseeker,vacancy,options.eventVacancyId||null,options)],{knowledge,vacancies:[vacancy]})
+  const semantic=frames[0]?.semantic||semanticResult(null)
+  const hybrid=computeSourceBoundHybridScore(deterministic,frames[0],jobseeker,vacancy,knowledge,{weights:options.hybridWeights})
 
   return {
     jobseeker,
     vacancy,
     eligibility,
-    deterministic: {
-      model_version: DETERMINISTIC_MODEL_VERSION,
-      fit_score: deterministic.fit_score,
-      coverage_score: deterministic.coverage_score,
-      ranking_score: deterministic.ranking_score,
-    },
+    deterministic: deterministicResult(deterministic, options.includeExplanationContext),
     semantic: {
+      embedding_version: semantic?.embedding_version ?? null,
       model_version: SEMANTIC_MODEL_VERSION,
       status: semantic?.status || SEMANTIC_STATUS.MISSING,
-      similarity: semantic?.similarity || null,
-      score: semantic?.score || null,
+      similarity: semantic?.similarity ?? null,
+      score: semantic?.score ?? null,
     },
     hybrid,
   }
@@ -427,13 +326,17 @@ export async function markEmbeddingForRefresh(entityType, entityId) {
   })
 }
 
+export const rankVacanciesHybrid=(id,options={})=>withMatchSourceRetry(()=>rankVacanciesHybridAttempt(id,options))
+export const rankCandidatesHybrid=(id,options={})=>withMatchSourceRetry(()=>rankCandidatesHybridAttempt(id,options))
+export const scorePairHybrid=(jobseekerId,vacancyId,options={})=>withMatchSourceRetry(()=>scorePairHybridAttempt(jobseekerId,vacancyId,options))
+
 export const semanticMatchingService = {
   getSemanticSimilarity,
   rankVacanciesHybrid,
   rankCandidatesHybrid,
   scorePairHybrid,
   markEmbeddingForRefresh,
-  HYBRID_MODEL_VERSION,
+  HYBRID_MODEL_VERSION: SOURCE_BOUND_HYBRID_VERSION,
   SEMANTIC_MODEL_VERSION,
   HYBRID_WEIGHTS_V1,
   SEMANTIC_STATUS,

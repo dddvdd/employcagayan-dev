@@ -1,83 +1,54 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { authService } from '../services/authService'
-import { profileService } from '../services/profileService'
+import { createAuthSessionController } from '../domain/authSession.js'
+import { needsMfaChallenge } from '../domain/authPolicy.js'
+import { rememberAuthCategory } from '../lib/authIntent.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  async function loadProfile(user) {
-    if (!user) {
-      setProfile(null)
-      return
-    }
-    const data = await profileService.fetchCurrent(user.id).catch((err) => {
-      console.error('Unable to load the user profile:', err.message)
-      return null
-    })
-    setProfile(data ?? null)
-  }
+  const [account, setAccount] = useState({ session: null, profile: null, assurance: null, factors: [], loading: true, error: null })
+  const controller = useRef(null)
 
   useEffect(() => {
-    let mounted = true
-
-    async function initialise() {
-      const { session: currentSession } = await authService.getSession()
-      if (!mounted) return
-
-      // If there's a session but no profile, or profile is inactive, sign out.
-      if (currentSession?.user) {
-        const inactive = await profileService.isProfileInactive(currentSession.user.id).catch(() => true)
-        if (inactive) {
-          await authService.signOut()
-          return
-        }
-      }
-
-      setSession(currentSession)
-      await loadProfile(currentSession?.user)
-      if (mounted) setLoading(false)
-    }
-
-    initialise()
-    const { data: { subscription } } = authService.onAuthStateChange((event, nextSession) => {
-      if (event === 'SIGNED_IN' && nextSession?.user) {
-        loadProfile(nextSession.user)
-      }
-      setSession(nextSession)
-      setLoading(false)
+    const current = createAuthSessionController({
+      getSession: authService.getSession,
+      loadAccount: authService.loadAccount,
+      subscribe(handler) {
+        const { data: { subscription } } = authService.onAuthStateChange(handler)
+        return () => subscription.unsubscribe()
+      },
+      publish: setAccount,
     })
-
+    controller.current = current
+    current.start()
     return () => {
-      mounted = false
-      subscription.unsubscribe()
+      current.stop()
+      if (controller.current === current) controller.current = null
     }
   }, [])
 
-  async function signInWithGoogle() {
-    return authService.signInWithGoogle(`${window.location.origin}/register`)
-  }
-
-  async function signInWithPassword(email, password) {
+  const refreshAccount = useCallback(() => controller.current?.refresh(), [])
+  const signInWithGoogle = useCallback(({ category = 'jobseeker' } = {}) => {
+    rememberAuthCategory(category)
+    const redirectTo = new URL('/auth/callback', window.location.origin).toString()
+    return authService.signInWithGoogle(redirectTo)
+  }, [])
+  const signInWithPassword = useCallback((email, password) => {
+    rememberAuthCategory('partner')
     return authService.signInWithPassword(email, password)
-  }
-
-  async function signOut() {
+  }, [])
+  const signOut = useCallback(async () => {
+    controller.current?.clear()
     return authService.signOut()
-  }
+  }, [])
 
   const value = useMemo(() => ({
-    session,
-    user: session?.user ?? null,
-    profile,
-    loading,
-    signInWithGoogle,
-    signInWithPassword,
-    signOut,
-  }), [session, profile, loading])
+    ...account,
+    user: account.session?.user ?? null,
+    mfaRequired: needsMfaChallenge(account.profile, account.assurance, account.factors),
+    refreshAccount, signInWithGoogle, signInWithPassword, signOut,
+  }), [account, refreshAccount, signInWithGoogle, signInWithPassword, signOut])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

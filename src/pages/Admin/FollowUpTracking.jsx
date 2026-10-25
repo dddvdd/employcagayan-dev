@@ -1,8 +1,9 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { employmentService } from '../../services/employmentService'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 const FOLLOW_UP_TYPES = ['30_day', '60_day', '90_day', '180_day']
 const FOLLOW_UP_LABELS = { '30_day': '30-Day', '60_day': '60-Day', '90_day': '90-Day', '180_day': '180-Day' }
@@ -18,6 +19,7 @@ const STATUS_COLORS = {
 export default function FollowUpTracking() {
   const [followUps, setFollowUps] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -39,11 +41,12 @@ export default function FollowUpTracking() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError('')
     try {
       const rows = await employmentService.listFollowUps()
       setFollowUps(rows || [])
     } catch (err) {
-      toast.error(`Failed: ${err.message}`)
+      setLoadError(err.message || 'Could not load follow-up records.')
     } finally {
       setLoading(false)
     }
@@ -80,13 +83,13 @@ export default function FollowUpTracking() {
   }
 
   async function handleUpdate() {
-    if (!editingFollowUp) return
+    if (!editingFollowUp || submitting) return
     setSubmitting(true)
     try {
-      await employmentService.updateFollowUp(editingFollowUp.id, formData)
+      const saved = await employmentService.updateFollowUp(editingFollowUp.id, formData)
+      setFollowUps(current => current.map(item => item.id === editingFollowUp.id ? { ...item, ...saved } : item))
       toast.success('Follow-up updated')
       setShowModal(false)
-      await loadData()
     } catch (err) {
       toast.error(`Failed: ${err.message}`)
     } finally {
@@ -105,7 +108,7 @@ export default function FollowUpTracking() {
       'Still Employed': f.still_employed === true ? 'Yes' : f.still_employed === false ? 'No' : '',
       'Remarks': f.remarks || '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -114,43 +117,45 @@ export default function FollowUpTracking() {
     toast.success(`Exported ${rows.length} follow-ups`)
   }
 
-  const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
+  const inputCls = 'min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 focus-visible:border-blue-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-900'
 
-  if (loading) return <div className="grid min-h-[400px] place-items-center text-slate-500">Loading...</div>
+  if (loading) return <div className="grid min-h-[400px] place-items-center text-sm text-slate-500" role="status">Loading participant follow-ups…</div>
+  if (loadError) return <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"><h1 className="font-semibold">Follow-ups could not be loaded.</h1><p className="mt-1">{loadError}</p><button type="button" onClick={loadData} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 font-semibold text-white hover:bg-blue-800">Try again</button></section>
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Follow-Up Tracking</h1>
-          <p className="text-sm text-slate-600">{filteredFollowUps.length} follow-up(s)</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Follow-Up Tracking</h1>
+          <p aria-live="polite" className="text-sm text-slate-600">{filteredFollowUps.length} of {followUps.length} follow-ups</p>
         </div>
-        <button onClick={exportCSV} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Export CSV</button>
+        <button type="button" onClick={exportCSV} disabled={!filteredFollowUps.length} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-blue-900">Export CSV</button>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3">
+      <div role="group" className="flex flex-col gap-3 sm:flex-row" aria-label="Filter follow-ups">
         <input
           type="text"
+          aria-label="Search follow-ups by applicant"
           placeholder="Search by name or ID..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="min-h-11 w-full flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-900 sm:max-w-sm"
         />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+        <select aria-label="Filter by follow-up schedule" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus-visible:ring-blue-900 sm:w-auto">
           <option value="all">All Types</option>
           {FOLLOW_UP_TYPES.map(t => <option key={t} value={t}>{FOLLOW_UP_LABELS[t]}</option>)}
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+        <select aria-label="Filter by follow-up status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus-visible:ring-blue-900 sm:w-auto">
           <option value="all">All Statuses</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
         </select>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
+          <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
             <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3">Applicant</th>
               <th className="px-4 py-3">Company</th>
@@ -161,9 +166,9 @@ export default function FollowUpTracking() {
               <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {filteredFollowUps.map(fu => (
-              <tr key={fu.id} className="hover:bg-slate-50">
+              <tr key={fu.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
                 <td className="px-4 py-3 font-medium text-slate-900">
                   {[fu.employment_outcomes?.applications?.registrants?.first_name, fu.employment_outcomes?.applications?.registrants?.last_name].filter(Boolean).join(' ')}
                 </td>
@@ -179,12 +184,14 @@ export default function FollowUpTracking() {
                   {fu.still_employed === true ? 'Yes' : fu.still_employed === false ? 'No' : '—'}
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => openEdit(fu)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
+                  <button onClick={() => openEdit(fu)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Edit</button>
                 </td>
               </tr>
             ))}
             {filteredFollowUps.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No follow-ups found</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                {followUps.length === 0 ? 'No participant follow-ups are scheduled yet.' : <div className="space-y-2"><p>No follow-ups match these filters.</p><button type="button" onClick={() => { setSearchQuery(''); setTypeFilter('all'); setStatusFilter('all') }} className="min-h-11 rounded-lg px-3 font-semibold text-blue-700 underline underline-offset-2">Clear filters</button></div>}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -192,41 +199,39 @@ export default function FollowUpTracking() {
 
       {/* Edit Modal */}
       {showModal && editingFollowUp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModal(false)}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-4">Update Follow-Up</h2>
+        <AccessibleDialog open onClose={() => setShowModal(false)} closeDisabled={submitting} labelledBy="follow-up-title" className="max-w-lg">
+            <h2 id="follow-up-title" className="mb-4 text-lg font-bold text-slate-900">Update Follow-Up</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700">Status</label>
-                <select className={inputCls} value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
+                <label htmlFor="follow-up-status" className="block text-sm font-medium text-slate-700">Status</label>
+                <select id="follow-up-status" className={inputCls} value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Completed Date</label>
-                <input type="date" className={inputCls} value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
+                <label htmlFor="follow-up-completed-date" className="block text-sm font-medium text-slate-700">Completed Date</label>
+                <input id="follow-up-completed-date" type="date" className={inputCls} value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Still Employed</label>
-                <select className={inputCls} value={formData.still_employed === true ? 'true' : formData.still_employed === false ? 'false' : ''} onChange={(e) => setFormData({ ...formData, still_employed: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}>
+                <label htmlFor="follow-up-employment-status" className="block text-sm font-medium text-slate-700">Still Employed</label>
+                <select id="follow-up-employment-status" className={inputCls} value={formData.still_employed === true ? 'true' : formData.still_employed === false ? 'false' : ''} onChange={(e) => setFormData({ ...formData, still_employed: e.target.value === 'true' ? true : e.target.value === 'false' ? false : null })}>
                   <option value="">Not answered</option>
                   <option value="true">Yes</option>
                   <option value="false">No</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Remarks</label>
-                <textarea className={inputCls} rows={3} value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} />
+                <label htmlFor="follow-up-remarks" className="block text-sm font-medium text-slate-700">Remarks</label>
+                <textarea id="follow-up-remarks" className={inputCls} rows={3} value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowModal(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={() => setShowModal(false)} disabled={submitting} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                 <button onClick={handleUpdate} disabled={submitting} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
                   {submitting ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

@@ -1,7 +1,7 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useMemo, useState } from 'react'
-import Papa from 'papaparse'
-import { toast } from 'sonner'
 import { format } from 'date-fns'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 import { eventTypeDisplay } from '../../domain/eventTypes'
 import { interviewService } from '../../services/interviewService'
 import { eventService } from '../../services/eventService'
@@ -29,6 +29,8 @@ export default function InterviewLogsManagement() {
   const [employerFilter, setEmployerFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [viewLog, setViewLog] = useState(null)
 
   useEffect(() => {
@@ -36,6 +38,8 @@ export default function InterviewLogsManagement() {
   }, [])
 
   async function loadData() {
+    setLoadError('')
+    setLoading(true)
     try {
       const [logs, events, employers] = await Promise.all([
         interviewService.listForManagement(),
@@ -45,8 +49,9 @@ export default function InterviewLogsManagement() {
       setLogs(logs || [])
       setEvents(events || [])
       setEmployers(employers || [])
+      setHasLoaded(true)
     } catch (err) {
-      toast.error(`Failed to load interview logs: ${err.message}`)
+      setLoadError(err.message || 'Failed to load interview logs.')
     } finally {
       setLoading(false)
     }
@@ -74,7 +79,7 @@ export default function InterviewLogsManagement() {
       interview_date: l.interview_date ? format(new Date(l.interview_date), 'yyyy-MM-dd HH:mm:ss') : '',
       notes: l.interview_notes || '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -86,7 +91,9 @@ export default function InterviewLogsManagement() {
 
   const inputCls = 'rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
 
-  if (loading) return <div className="grid min-h-[300px] place-items-center text-slate-500">Loading interview logs...</div>
+  if (loading && !hasLoaded) return <div role="status" aria-live="polite" className="grid min-h-[300px] place-items-center text-slate-500">Loading interview logs...</div>
+
+  if (loadError && !hasLoaded) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">Interview logs unavailable</h1><p className="mt-2 text-sm">{loadError}</p><button type="button" onClick={loadData} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">
@@ -100,21 +107,24 @@ export default function InterviewLogsManagement() {
         </button>
       </div>
 
+      {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Refresh failed; showing the last loaded interview logs.</p><p className="mt-1">{loadError}</p><button type="button" onClick={loadData} className="mt-2 min-h-10 font-semibold underline">Try again</button></div>}
+
       {/* Filters */}
       <div className="grid gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:grid-cols-4">
-        <select value={filterEvent} onChange={(e) => setFilterEvent(e.target.value)} className={inputCls}>
+        <label className="sr-only" htmlFor="interview-event-filter">Filter by event</label><select id="interview-event-filter" value={filterEvent} onChange={(e) => setFilterEvent(e.target.value)} className={inputCls}>
           <option value="all">All Events</option>
           {events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name} — {eventTypeDisplay(ev)}</option>)}
         </select>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={inputCls}>
+        <label className="sr-only" htmlFor="interview-status-filter">Filter by interview outcome</label><select id="interview-status-filter" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={inputCls}>
           <option value="all">All Statuses</option>
           {INTERVIEW_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
-        <select value={employerFilter} onChange={(e) => setEmployerFilter(e.target.value)} className={inputCls}>
+        <label className="sr-only" htmlFor="interview-employer-filter">Filter by employer</label><select id="interview-employer-filter" value={employerFilter} onChange={(e) => setEmployerFilter(e.target.value)} className={inputCls}>
           <option value="all">All Employers</option>
           {employers.map(em => <option key={em.id} value={em.id}>{em.company_name}</option>)}
         </select>
         <input
+          aria-label="Filter by company"
           type="text"
           placeholder="Filter by company..."
           value={companyFilter}
@@ -169,11 +179,10 @@ export default function InterviewLogsManagement() {
 
       {/* View modal */}
       {viewLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setViewLog(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={() => setViewLog(null)} labelledBy="interview-details-title" className="max-w-md">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">Interview Details</h3>
-              <button onClick={() => setViewLog(null)} className="text-xl leading-none text-slate-400 hover:text-slate-600">×</button>
+              <h2 id="interview-details-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">Interview Details</h2>
+              <button type="button" aria-label="Close interview details" onClick={() => setViewLog(null)} className="grid h-11 w-11 place-items-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">×</button>
             </div>
             <div className="space-y-3 text-sm">
               <Detail label="Registrant" value={[viewLog.registrants?.first_name, viewLog.registrants?.middle_name, viewLog.registrants?.last_name].filter(Boolean).join(' ')} />
@@ -186,8 +195,7 @@ export default function InterviewLogsManagement() {
               <Detail label="Date" value={viewLog.interview_date ? format(new Date(viewLog.interview_date), 'MMM d, yyyy h:mm a') : '—'} />
               <Detail label="Notes" value={viewLog.interview_notes || '—'} />
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

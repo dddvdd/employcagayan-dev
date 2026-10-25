@@ -23,33 +23,34 @@ const RESULT_DISPLAY_MS = 3000
 //   'error'           → unexpected system error
 
 // ----- Pixel design tokens (mobile-first) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 pixel-shadow'
+const PANEL = 'rounded-2xl border-2 border-slate-900 pixel-shadow dark:border-slate-700'
 const BTN = 'inline-flex min-h-[52px] items-center justify-center gap-2 rounded-lg border-2 border-slate-900 px-5 text-sm font-black uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
 const BTN_YELLOW = `${BTN} bg-amber-400 text-slate-900`
-const BTN_GHOST = `${BTN} bg-white text-slate-800`
+const BTN_GHOST = `${BTN} bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`
 const BTN_GREEN = `${BTN} bg-emerald-400 text-slate-900`
 const BTN_RED = `${BTN} bg-red-600 text-white`
 
 const RESULT_TONES = {
-  ready: { panel: 'bg-white', box: 'bg-slate-100 text-slate-500' },
-  processing: { panel: 'bg-blue-50', box: 'bg-blue-100 text-blue-700' },
-  no_quest: { panel: 'bg-amber-50', box: 'bg-amber-100 text-amber-700' },
-  invalid: { panel: 'bg-red-50', box: 'bg-red-100 text-red-600' },
-  not_found: { panel: 'bg-red-50', box: 'bg-red-100 text-red-600' },
-  not_registered: { panel: 'bg-blue-50', box: 'bg-blue-100 text-blue-700' },
-  registered: { panel: 'bg-emerald-50', box: 'bg-emerald-100 text-emerald-700' },
-  already_checked: { panel: 'bg-amber-50', box: 'bg-amber-100 text-amber-700' },
-  success: { panel: 'bg-emerald-50', box: 'bg-emerald-100 text-emerald-700' },
-  error: { panel: 'bg-red-50', box: 'bg-slate-100 text-slate-600' },
+  ready: { panel: 'bg-white dark:bg-slate-900', box: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300' },
+  processing: { panel: 'bg-blue-50 dark:bg-blue-950', box: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' },
+  no_quest: { panel: 'bg-amber-50 dark:bg-amber-950', box: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200' },
+  invalid: { panel: 'bg-red-50 dark:bg-red-950', box: 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-200' },
+  not_found: { panel: 'bg-red-50 dark:bg-red-950', box: 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-200' },
+  not_registered: { panel: 'bg-blue-50 dark:bg-blue-950', box: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' },
+  registered: { panel: 'bg-emerald-50 dark:bg-emerald-950', box: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200' },
+  already_checked: { panel: 'bg-amber-50 dark:bg-amber-950', box: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200' },
+  success: { panel: 'bg-emerald-50 dark:bg-emerald-950', box: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200' },
+  error: { panel: 'bg-red-50 dark:bg-red-950', box: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200' },
 }
 
 export default function ScannerPage() {
-  const { events } = useStaffEvents()
+  const { events, error: eventsError, retry: retryEvents } = useStaffEvents()
   const [currentEvent, setCurrentEvent] = useState(null)      // {id, event_name}
   const [participant, setParticipant] = useState(null)         // {pass_id, name, ...}
   const [participation, setParticipation] = useState(null)     // event_participation row
   const [scanResult, setScanResult] = useState(null)
   const [processing, setProcessing] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
   const [scanHistory, setScanHistory] = useState([])
 
   const decodingRef = useRef(false)          // one decode resolving at a time
@@ -143,19 +144,22 @@ export default function ScannerPage() {
 
   // ----- Actions -----
   async function handleCheckIn() {
-    if (!participation || !participant) return
+    if (!participation || !participant || actionBusy) return
+    setActionBusy(true)
     try {
       const checkedIn = await checkInService.checkInParticipation(participation.id)
-      toast.success(`Checked in ${participant.name}!`)
       setParticipation({ ...participation, check_in_status: 'checked_in', check_in_time: checkedIn?.check_in_time })
       finishScanRef.current?.('success', { ...participant, ...checkedIn })
     } catch (err) {
       toast.error(`Check-in failed: ${err.message}`)
+    } finally {
+      setActionBusy(false)
     }
   }
 
   async function handleRegister() {
-    if (!currentEvent || !participant) return
+    if (!currentEvent || !participant || actionBusy) return
+    setActionBusy(true)
     try {
       const ep = await participantService.staffRegisterParticipant(participant.id, currentEvent.id)
       toast.success(`Registered ${participant.name} for ${currentEvent.event_name}!`)
@@ -163,6 +167,8 @@ export default function ScannerPage() {
       finishScanRef.current?.('registered', { ...participant, check_in_status: 'pending' })
     } catch (err) {
       toast.error(`Registration failed: ${err.message}`)
+    } finally {
+      setActionBusy(false)
     }
   }
 
@@ -227,14 +233,17 @@ export default function ScannerPage() {
         )}
       </div>
 
+      {eventsError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>Quest choices couldn’t be loaded. Check the connection before scanning or checking anyone in.</p><button type="button" onClick={retryEvents} className="mt-2 min-h-10 font-semibold underline">Reload quests</button></div>}
+
       {/* Quest / Event context selector */}
-      <div className={`${PANEL} bg-white p-3`}>
+      <div className={`${PANEL} bg-white p-3 dark:bg-slate-900`}>
         <label htmlFor="quest-select" className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-widest text-slate-500">
           Current Quest
         </label>
         <select
           id="quest-select"
           value={currentEvent?.id || ''}
+          disabled={processing || actionBusy}
           onChange={(e) => {
             const ev = events.find(x => x.id === e.target.value) || null
             setCurrentEvent(ev)
@@ -242,7 +251,7 @@ export default function ScannerPage() {
             setParticipation(null)
             setScanResult(null)
           }}
-          className="min-h-[48px] w-full rounded-lg border-2 border-slate-900 bg-amber-50 px-3 text-sm font-bold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-300"
+          className="min-h-[48px] w-full rounded-lg border-2 border-slate-900 bg-white px-3 text-sm font-medium text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         >
           {events.length === 0 && <option value="">No active Quests</option>}
           {events.map(ev => <option key={ev.id} value={ev.id}>{ev.event_name}</option>)}
@@ -334,7 +343,7 @@ export default function ScannerPage() {
                   <>
                     <span className={iconBox} aria-hidden>▣</span>
                     <p className="mt-3 font-mono text-xs font-bold uppercase tracking-widest text-slate-500">Ready to Scan</p>
-                    <p className="mt-1 text-sm text-slate-600">Point the camera at a Participant Pass.</p>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Point the camera at a Participant Pass.</p>
                   </>
                 )}
 
@@ -379,10 +388,10 @@ export default function ScannerPage() {
                   <>
                     <span className={iconBox} aria-hidden>?</span>
                     <p className="mt-3 font-mono text-xs font-bold uppercase tracking-widest text-blue-700">Participant Found — Not Registered</p>
-                    <p className="mt-1 break-words text-2xl font-black text-slate-900">{name}</p>
+                    <p className="mt-1 break-words text-2xl font-black text-slate-900 dark:text-slate-100">{name}</p>
                     {passId && <p className="mt-1 font-mono text-sm font-bold tracking-wider text-blue-700">{passId}</p>}
                     {evName && <p className="mt-1 text-xs text-slate-600">Quest: <strong>{evName}</strong></p>}
-                    <button onClick={handleRegister} className={`${BTN_YELLOW} mt-4 w-full sm:w-auto sm:min-w-[240px]`}>Register for This Quest</button>
+                    <button type="button" onClick={handleRegister} disabled={actionBusy} className={`${BTN_YELLOW} mt-4 w-full sm:w-auto sm:min-w-[240px] disabled:cursor-not-allowed disabled:opacity-60`}>{actionBusy ? 'Registering…' : 'Register for This Quest'}</button>
                   </>
                 )}
 
@@ -391,10 +400,10 @@ export default function ScannerPage() {
                   <>
                     <span className={iconBox} aria-hidden>✓</span>
                     <p className="mt-3 font-mono text-xs font-bold uppercase tracking-widest text-emerald-700">Participant Found — Registered</p>
-                    <p className="mt-1 break-words text-2xl font-black text-slate-900">{name}</p>
+                    <p className="mt-1 break-words text-2xl font-black text-slate-900 dark:text-slate-100">{name}</p>
                     {passId && <p className="mt-1 font-mono text-sm font-bold tracking-wider text-emerald-700">{passId}</p>}
                     {evName && <p className="mt-1 text-xs text-slate-600">Quest: <strong>{evName}</strong></p>}
-                    <button onClick={handleCheckIn} className={`${BTN_GREEN} mt-4 w-full sm:w-auto sm:min-w-[220px]`}>Check In</button>
+                    <button type="button" onClick={handleCheckIn} disabled={actionBusy} className={`${BTN_GREEN} mt-4 w-full sm:w-auto sm:min-w-[220px] disabled:cursor-not-allowed disabled:opacity-60`}>{actionBusy ? 'Checking in…' : 'Check In'}</button>
                   </>
                 )}
 
@@ -403,7 +412,7 @@ export default function ScannerPage() {
                   <>
                     <span className={iconBox} aria-hidden>!</span>
                     <p className="mt-3 text-xl font-black uppercase tracking-wide text-amber-700">Already Checked In</p>
-                    <p className="mt-1 break-words text-2xl font-black text-slate-900">{name}</p>
+                    <p className="mt-1 break-words text-2xl font-black text-slate-900 dark:text-slate-100">{name}</p>
                     {passId && <p className="mt-1 font-mono text-sm font-bold tracking-wider text-amber-700">{passId}</p>}
                     {checkInTime && <p className="mt-1 text-xs text-amber-800">Checked in at {checkInTime}</p>}
                   </>
@@ -441,7 +450,7 @@ export default function ScannerPage() {
 
         {/* ---- C · Controls ---- */}
         <section className="order-3 space-y-2 lg:order-2">
-          <p className="flex items-start gap-2 text-xs font-semibold leading-relaxed text-slate-600">
+          <p className="flex items-start gap-2 text-xs font-semibold leading-relaxed text-slate-600 dark:text-slate-300">
             Hold the phone steady about 15–25 cm from the Participant Pass QR code until it beeps green.
           </p>
           <div className="grid grid-cols-2 gap-3">
@@ -458,14 +467,14 @@ export default function ScannerPage() {
 
         {/* ---- D · Scan history ---- */}
         {scanHistory.length > 0 && (
-          <section className={`${PANEL} order-4 bg-white p-4 lg:order-4`}>
+          <section className={`${PANEL} order-4 bg-white p-4 dark:bg-slate-900 lg:order-4`}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="font-mono text-xs font-bold uppercase tracking-widest text-slate-500">Scan Log</h2>
               <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold">
                 <span className="rounded-md border-2 border-slate-900 bg-emerald-100 px-1.5 py-0.5 text-emerald-800">✓{successCount}</span>
                 <span className="rounded-md border-2 border-slate-900 bg-amber-100 px-1.5 py-0.5 text-amber-800">⚠{duplicateCount}</span>
                 <span className="rounded-md border-2 border-slate-900 bg-red-100 px-1.5 py-0.5 text-red-700">✗{invalidCount}</span>
-                <button onClick={handleClearHistory} className="ml-1 min-h-[32px] rounded-md border-2 border-slate-900 bg-white px-2 font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">Clear</button>
+                <button onClick={handleClearHistory} className="ml-1 min-h-[40px] rounded-md border-2 border-slate-900 bg-white px-2 font-bold uppercase tracking-wide pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">Clear</button>
               </div>
             </div>
             <ul className="max-h-72 space-y-2 overflow-y-auto lg:max-h-96">
@@ -476,12 +485,12 @@ export default function ScannerPage() {
                 const ok = scan.type === 'success'
                 const dup = scan.type === 'already_checked'
                 return (
-                  <li key={scan.id} className="flex items-center gap-3 rounded-lg border-2 border-slate-200 px-3 py-2">
+                  <li key={scan.id} className="flex items-center gap-3 rounded-lg border-2 border-slate-200 px-3 py-2 dark:border-slate-700">
                     <span aria-hidden className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border-2 border-slate-900 text-sm font-black ${ok ? 'bg-emerald-400 text-slate-900' : dup ? 'bg-amber-400 text-slate-900' : 'bg-red-500 text-white'}`}>
                       {ok ? '✓' : dup ? '⚠' : '✕'}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-slate-900">{sn || 'Unknown'}</p>
+                      <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{sn || 'Unknown'}</p>
                       <p className="truncate font-mono text-[11px] text-slate-500">{sp || scan.error || 'Invalid pass'}</p>
                     </div>
                     <span className="shrink-0 font-mono text-[11px] text-slate-400">{time}</span>

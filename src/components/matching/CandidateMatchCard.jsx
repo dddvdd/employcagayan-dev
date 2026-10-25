@@ -10,7 +10,7 @@ function EvidenceIcon({ gap = false }) {
 
 export default function CandidateMatchCard({ view, onOpen }) {
   return (
-    <article className="flex h-full flex-col rounded-2xl border-2 border-slate-900 bg-white p-5 pixel-shadow-sm">
+    <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-lg font-black leading-tight text-slate-900">{view.title}</h2>
@@ -48,7 +48,7 @@ export default function CandidateMatchCard({ view, onOpen }) {
         type="button"
         onClick={onOpen}
         aria-haspopup="dialog"
-        className="mt-5 min-h-11 w-full rounded-lg border-2 border-slate-900 bg-role-employer px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-300"
+          className="mt-5 min-h-11 w-full rounded-lg border border-blue-700 bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
       >
         Why This Candidate?
       </button>

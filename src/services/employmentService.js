@@ -42,8 +42,13 @@ export async function listFollowUps() {
 }
 
 export async function updateFollowUp(id, patch) {
+  const fields = ['status','completed_date','still_employed','position','salary','employer_confirmed','worker_confirmed','remarks']
+  const material = Object.fromEntries(fields.filter(key => Object.hasOwn(patch || {}, key)).map(key => [key, patch[key]]))
+  if (!Object.keys(material).length) throw new Error('No follow-up fields to update')
+  if (material.completed_date === '') material.completed_date = null
   return unwrap(
-    await supabase.from('follow_ups').update(patch).eq('id', id),
+    await supabase.from('follow_ups').update(material).eq('id', id)
+      .select('id,status,completed_date,still_employed,position,salary,employer_confirmed,worker_confirmed,remarks,updated_at').single(),
     'Could not update follow-up'
   )
 }
@@ -67,8 +72,12 @@ export async function listReturningWorkers() {
 }
 
 export async function updateOutcome(id, patch) {
+  const fields=['outcome','hired_at','position_held','company','salary','start_date','verification_notes']
+  const material=Object.fromEntries(fields.filter(key => Object.hasOwn(patch || {},key)).map(key => [key,patch[key]]))
+  if(!Object.keys(material).length)throw new Error('No outcome fields to update')
   return unwrap(
-    await supabase.from('employment_outcomes').update(patch).eq('id', id),
+    await supabase.from('employment_outcomes').update(material).eq('id', id)
+      .select('id,outcome,hired_at,position_held,company,salary,start_date,verification_notes,verified_by,verification_date,employer_id').single(),
     'Could not update outcome'
   )
 }

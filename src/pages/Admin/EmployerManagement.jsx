@@ -1,11 +1,14 @@
-import { useEffect, useState, useMemo } from 'react'
+import {spreadsheetCsv} from '../../lib/csvExport.js'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { applicableRequirements } from '../../lib/accreditation'
 import { useAuth } from '../../contexts/AuthContext'
 import { employerService } from '../../services/employerService'
 import { accreditationService } from '../../services/accreditationService'
 import { format } from 'date-fns'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
+import ConfirmActionDialog from '../../components/ui/ConfirmActionDialog.jsx'
+import { credentialPasswordError } from '../../domain/credentialPolicy.js'
 
 export default function EmployerManagement() {
   const { profile } = useAuth()
@@ -35,7 +38,14 @@ export default function EmployerManagement() {
   const [noteFor, setNoteFor] = useState(null)
   const [docNote, setDocNote] = useState('')
   const [linkEmail, setLinkEmail] = useState('')
+  const [linkedAccount, setLinkedAccount] = useState(null)
+  const [activationCandidate, setActivationCandidate] = useState(null)
+  const [activationReason, setActivationReason] = useState('')
+  const [activationReviewed, setActivationReviewed] = useState(false)
+  const reviewRequest = useRef(0)
   const [tempPassword, setTempPassword] = useState('')
+  const [showTempPassword, setShowTempPassword] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   useEffect(() => {
     loadEmployers()
@@ -132,11 +142,14 @@ async function handleSubmit(e) {
     try {
       await employerService.approve(employer.id)
       toast.success(employer.registered_user_id
-        ? `${employer.company_name} approved and user activated`
+        ? `${employer.company_name} approved and employer access enabled`
         : `${employer.company_name} approved`)
       await loadEmployers()
     } catch (err) {
-      toast.error(`Failed to approve: ${err.message}`)
+      if (err.code === '42501' && err.message?.includes('Activate the linked account explicitly')) {
+        toast.error('The linked account is inactive. Review and activate it separately before approval.')
+        await openReview(employer)
+      } else toast.error(`Failed to approve: ${err.message}`)
     } finally {
       setSubmitting(false)
     }
@@ -148,7 +161,7 @@ async function handleSubmit(e) {
   }
 
   async function handleReject() {
-    if (!rejectModal) return
+    if (!rejectModal || submitting) return
     setSubmitting(true)
     try {
       await employerService.reject(rejectModal.id, rejectReason)
@@ -163,43 +176,52 @@ async function handleSubmit(e) {
   }
 
   async function handleDelete(employer) {
-    if (!confirm(`Are you sure you want to delete ${employer.company_name}?`)) return
     try {
       await employerService.remove(employer.id)
       toast.success('Employer deleted')
       await loadEmployers()
     } catch (err) {
-      toast.error(`Failed to delete employer: ${err.message}`)
+      throw err
     }
   }
 
   async function linkAccount() {
-    if (!linkEmail.trim()) return
+    if (!reviewEmployer || !linkEmail.trim() || submitting) return
     setSubmitting(true)
+    let linked = false
     try {
       await employerService.linkAccount(reviewEmployer.id, linkEmail.trim())
-      toast.success('Employer linked to the account')
+      linked = true
       setLinkEmail('')
+      const updated = await employerService.getById(reviewEmployer.id)
+      if (!updated) throw new Error('Company details are unavailable')
       await loadEmployers()
-      openReview({ ...reviewEmployer })
+      await openReview(updated)
+      toast.success('Employer linked to the account')
     } catch (err) {
-      toast.error(`Link failed: ${err.message}`)
+      if (err.code === '42501' && err.message?.includes('Activate the account explicitly')) {
+        setActivationCandidate({ companyId: reviewEmployer.id, email: linkEmail.trim() })
+      }
+      toast.error(linked ? 'Account linked, but the company view could not be refreshed. Close and reopen the review.' : `Link failed: ${err.message}`)
     } finally {
       setSubmitting(false)
     }
   }
 
   async function resetEmployerPassword() {
+    if (!reviewEmployer || submitting) return
     if (reviewEmployer.registered_user_id === profile?.id) {
       toast.error('Use account settings to change your own password.')
       return
     }
-    if (tempPassword.length < 6) { toast.error('Temporary password must be at least 6 characters.'); return }
+    const passwordError = credentialPasswordError(tempPassword)
+    if (passwordError) { toast.error(passwordError); return }
     setSubmitting(true)
     try {
       await employerService.resetPassword(reviewEmployer.registered_user_id, tempPassword)
       setTempPassword('')
-      toast.success('Password reset. Share it securely — it is not stored in plain text.')
+      setShowTempPassword(false)
+      toast.success('Password changed. Previous sessions have ended; authenticator verification is still required.')
     } catch (err) {
       toast.error(`Reset failed: ${err.message}`)
     } finally {
@@ -208,14 +230,74 @@ async function handleSubmit(e) {
   }
 
   async function openReview(employer) {
+    const request = ++reviewRequest.current
+    setTempPassword('')
+    setShowTempPassword(false)
+    setLinkEmail('')
+    setLinkedAccount(null)
+    setActivationCandidate(null)
+    setActivationReason('')
+    setActivationReviewed(false)
     setReviewEmployer(employer)
     setReviewAccred(null)
     setNoteFor(null)
     try {
       const data = await employerService.listAccreditation(employer.id)
-      setReviewAccred(data || null)
+      if (request === reviewRequest.current) setReviewAccred(data || null)
     } catch (err) {
       toast.error(`Could not load accreditation: ${err.message}`)
+    }
+    if (employer.registered_user_id) {
+      try {
+        const account = await employerService.getLinkedAccount(employer.registered_user_id)
+        if (request === reviewRequest.current) setLinkedAccount(account || null)
+      } catch (err) {
+        toast.error(`Could not load linked account status: ${err.message}`)
+      }
+    }
+  }
+
+  function closeReview() {
+    if (submitting) return
+    reviewRequest.current += 1
+    setTempPassword('')
+    setShowTempPassword(false)
+    setLinkEmail('')
+    setLinkedAccount(null)
+    setActivationCandidate(null)
+    setActivationReason('')
+    setActivationReviewed(false)
+    setReviewEmployer(null)
+    setReviewAccred(null)
+  }
+
+  const activationTarget = reviewEmployer?.registered_user_id
+    ? linkedAccount?.is_active === false && linkedAccount.id === reviewEmployer.registered_user_id
+      ? { companyId: reviewEmployer.id, email: null, label: linkedAccount.email || 'Linked account' }
+      : null
+    : activationCandidate && reviewEmployer && activationCandidate.companyId === reviewEmployer.id && activationCandidate.email === linkEmail.trim()
+      ? { ...activationCandidate, label: activationCandidate.email }
+      : null
+
+  async function activateReviewedAccount() {
+    if (!activationTarget || !activationReviewed || !activationReason || submitting) return
+    setSubmitting(true)
+    let activated = false
+    try {
+      await employerService.reactivateAccount(activationTarget.companyId, activationTarget.email, activationReason)
+      activated = true
+      if (reviewEmployer.registered_user_id) {
+        const account = await employerService.getLinkedAccount(reviewEmployer.registered_user_id)
+        if (!account?.is_active) throw new Error('Updated account status could not be confirmed')
+        setLinkedAccount(account)
+      } else setActivationCandidate(null)
+      setActivationReason('')
+      setActivationReviewed(false)
+      toast.success('Account activated. Link or approve the company as a separate step; Partner MFA still applies.')
+    } catch (err) {
+      toast.error(activated ? 'Account activated, but its status could not be refreshed. Close and reopen this review.' : `Activation failed: ${err.message}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -260,7 +342,7 @@ async function handleSubmit(e) {
       'PWD Friendly': e.pwd_friendly ? 'Yes' : 'No',
       'Notes': e.notes || '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -423,7 +505,7 @@ async function handleSubmit(e) {
                       </>
                     )}
                     <button onClick={() => openEdit(employer)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                    <button onClick={() => handleDelete(employer)} className="rounded-lg border border-red-300 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button>
+                    <button onClick={() => setDeleteTarget(employer)} className="rounded-lg border border-red-300 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button>
                   </div>
                 </td>
               </tr>
@@ -437,9 +519,8 @@ async function handleSubmit(e) {
 
       {/* Create / Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModal(false)}>
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-4 text-lg font-bold text-slate-900">{editingEmployer ? 'Edit Employer' : 'Add Employer'}</h2>
+        <AccessibleDialog open onClose={() => setShowModal(false)} closeDisabled={submitting} labelledBy="employer-form-title" className="max-w-lg">
+            <h2 id="employer-form-title" className="mb-4 text-lg font-bold text-slate-900 dark:text-slate-100">{editingEmployer ? 'Edit Employer' : 'Add Employer'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">Company Name *</label>
@@ -497,17 +578,15 @@ async function handleSubmit(e) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Review Modal */}
       {reviewEmployer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReviewEmployer(null)}>
-          <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <AccessibleDialog open onClose={closeReview} closeDisabled={submitting} labelledBy="employer-review-title" className="max-w-4xl">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">{reviewEmployer.company_name}</h2>
+                <h2 id="employer-review-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">{reviewEmployer.company_name}</h2>
                 <p className="text-xs text-slate-500">Registered {format(new Date(reviewEmployer.created_at), 'MMM d, yyyy')}</p>
               </div>
               {statusBadge(reviewEmployer.registration_status)}
@@ -530,7 +609,8 @@ async function handleSubmit(e) {
               )}
               {reviewEmployer.rejection_reason && <ReviewRow label="Rejection Reason" value={reviewEmployer.rejection_reason} />}
               {reviewEmployer.notes && <ReviewRow label="Notes" value={reviewEmployer.notes} />}
-              <ReviewRow label="Linked Account" value={reviewEmployer.registered_user_id ? 'Registered user (self-registration)' : 'Seeded by admin'} />
+              <ReviewRow label="Linked Account" value={reviewEmployer.registered_user_id ? linkedAccount?.email || 'Linked account' : 'No account linked'} />
+              {linkedAccount && <ReviewRow label="Account Status" value={linkedAccount.is_active ? 'Active' : 'Inactive'} />}
             </dl>
 
             {/* Account association / access */}
@@ -539,7 +619,7 @@ async function handleSubmit(e) {
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Link Existing Account</p>
                 <p className="mt-1 text-[11px] text-slate-400">Associate this company with a registered account instead of creating a duplicate.</p>
                 <div className="mt-2 flex gap-2">
-                  <input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} placeholder="account email" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                  <input type="email" value={linkEmail} disabled={submitting} onChange={(e) => { setLinkEmail(e.target.value); setActivationCandidate(null); setActivationReason(''); setActivationReviewed(false) }} placeholder="account email" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50" />
                   <button onClick={linkAccount} disabled={submitting || !linkEmail.trim()} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">Link</button>
                 </div>
               </div>
@@ -548,10 +628,32 @@ async function handleSubmit(e) {
               <div className="mt-4 rounded-xl border border-slate-200 p-3">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Account Access</p>
                 <div className="mt-2 flex gap-2">
-                  <input type="text" value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} placeholder="temporary password (shown once)" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                  <button onClick={resetEmployerPassword} disabled={submitting || tempPassword.length < 6} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">Reset Password</button>
+                  <input type={showTempPassword ? 'text' : 'password'} aria-label="Temporary password (min 8 characters)" autoComplete="new-password" disabled={submitting} value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} placeholder="temporary password" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                  <button type="button" aria-label={showTempPassword ? 'Hide password' : 'Show password'} disabled={submitting} onClick={() => setShowTempPassword(value => !value)} className="rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 disabled:opacity-50">{showTempPassword ? 'Hide' : 'Show'}</button>
+                  <button onClick={resetEmployerPassword} disabled={submitting || Boolean(credentialPasswordError(tempPassword))} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">Reset Password</button>
                 </div>
-                <p className="mt-1 text-[10px] text-slate-400">Stored hashed server-side; never retrievable afterwards.</p>
+                <p className="mt-1 text-xs text-slate-600">Use at least 8 characters. Previous sessions will end; authenticator verification will still be required.</p>
+                {tempPassword && credentialPasswordError(tempPassword) && <p className="mt-1 text-xs text-red-700">{credentialPasswordError(tempPassword)}</p>}
+              </div>
+            )}
+
+            {activationTarget && (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                <h3 className="font-bold">Separate account activation review</h3>
+                <p className="mt-1">{activationTarget.label} is inactive. Restoring account access is a separate recorded decision. It will not link or approve this company, and Partner authenticator verification will still be required.</p>
+                <label htmlFor="employer-activation-reason" className="mt-3 block text-xs font-semibold">Reason for restoring access</label>
+                <select id="employer-activation-reason" value={activationReason} disabled={submitting} onChange={(event) => setActivationReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-amber-400 bg-white px-3 text-sm text-slate-900 disabled:opacity-50">
+                  <option value="">Choose a reason</option>
+                  <option value="identity_and_access_reviewed">Identity and access reviewed</option>
+                  <option value="prior_deactivation_corrected">Prior deactivation corrected</option>
+                </select>
+                <label className="mt-3 flex items-start gap-2 text-xs leading-5">
+                  <input type="checkbox" checked={activationReviewed} disabled={submitting} onChange={(event) => setActivationReviewed(event.target.checked)} className="mt-1 h-4 w-4" />
+                  <span>I reviewed the account status and am authorized to restore this account’s access. This action will be recorded.</span>
+                </label>
+                <button type="button" onClick={activateReviewedAccount} disabled={submitting || !activationReason || !activationReviewed} className="mt-3 min-h-11 rounded-lg bg-amber-800 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50">
+                  {submitting ? 'Activating…' : 'Activate account'}
+                </button>
               </div>
             )}
 
@@ -607,26 +709,25 @@ async function handleSubmit(e) {
               </div>
             )}
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setReviewEmployer(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+              <button onClick={closeReview} disabled={submitting} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Close</button>
               {reviewEmployer.registration_status === 'pending' && (
                 <>
-                  <button onClick={() => { const emp = reviewEmployer; setReviewEmployer(null); handleApprove(emp) }} disabled={submitting} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Approve Accreditation</button>
-                  <button onClick={() => { openReject(reviewEmployer); setReviewEmployer(null) }} disabled={submitting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">Reject</button>
+                  <button onClick={() => { const emp = reviewEmployer; closeReview(); handleApprove(emp) }} disabled={submitting} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Approve Accreditation</button>
+                  <button onClick={() => { openReject(reviewEmployer); closeReview() }} disabled={submitting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">Reject</button>
                 </>
               )}
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setRejectModal(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-2 text-lg font-bold text-slate-900">Reject Registration</h2>
+        <AccessibleDialog open onClose={() => setRejectModal(null)} closeDisabled={submitting} labelledBy="employer-reject-title" className="max-w-md">
+            <h2 id="employer-reject-title" className="mb-2 text-lg font-bold text-slate-900 dark:text-slate-100">Reject Registration</h2>
             <p className="text-sm text-slate-600">
               Reject <strong>{rejectModal.company_name}</strong>? Optionally provide a reason:
             </p>
+            <p className="mt-2 text-sm text-slate-600">Company access will be blocked. Pending jobseeker access is kept; approved employer accounts lose Partner access.</p>
             <textarea
               className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               rows={3}
@@ -635,14 +736,14 @@ async function handleSubmit(e) {
               onChange={(e) => setRejectReason(e.target.value)}
             />
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setRejectModal(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={() => setRejectModal(null)} disabled={submitting} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
               <button onClick={handleReject} disabled={submitting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">
                 {submitting ? 'Rejecting...' : 'Reject'}
               </button>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
+      <ConfirmActionDialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} onConfirm={() => handleDelete(deleteTarget)} title="Delete employer?" description={`This permanently removes ${deleteTarget?.company_name || 'this employer'} from the employer records.`} itemLabel="this employer" />
     </div>
   )
 }

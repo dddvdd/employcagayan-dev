@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { PixelArrow } from '../../components/public/pixel'
-import ThemeToggle from '../../components/ThemeToggle'
+import JobseekerRecordHeader from '../../components/jobseeker/JobseekerRecordHeader.jsx'
 import { preferenceService } from '../../services/preferenceService'
 import { referenceService } from '../../services/referenceService'
 import { participantService } from '../../services/participantService'
 import { useParticipant, useJobseekerProfile } from '../../hooks/jobseeker/useJobseeker'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
+import ThemeToggle from '../../components/ThemeToggle.jsx'
 
 const PRIORITY_OPTIONS = [
   { value: 1, label: 'Primary' },
@@ -30,20 +30,20 @@ const SALARY_PERIOD_OPTIONS = [
   { value: 'annual', label: 'Annual' },
 ]
 
-const input = 'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+const input = 'block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
 function Card({ title, description, children }) {
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
-      <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-      {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 sm:p-6">
+      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+      {description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>}
       <div className="mt-5">{children}</div>
     </div>
   )
 }
 
 function Badge({ children }) {
-  return <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">{children}</span>
+  return <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">{children}</span>
 }
 
 function useDebouncedValue(value, ms = 300) {
@@ -56,14 +56,19 @@ function useDebouncedValue(value, ms = 300) {
 }
 
 export default function PreferencesPage() {
-  const { participant, loading: participantLoading } = useParticipant()
-  const { profile, loading: profileLoading } = useJobseekerProfile(participant?.id)
+  const { participant, loading: participantLoading, error: participantError } = useParticipant()
+  const { profile, loading: profileLoading, error: profileError } = useJobseekerProfile(participant?.id)
 
   // Occupation prefs
   const [occPrefs, setOccPrefs] = useState([])
   const [occLoading, setOccLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [occQuery, setOccQuery] = useState('')
   const [occResults, setOccResults] = useState([])
+  const [occSearchError, setOccSearchError] = useState(false)
+  const [occSearchLoading, setOccSearchLoading] = useState(false)
+  const [occSearchRetry, setOccSearchRetry] = useState(0)
   const [occSearchOpen, setOccSearchOpen] = useState(false)
   const [occPriority, setOccPriority] = useState(1)
 
@@ -101,7 +106,7 @@ export default function PreferencesPage() {
   // --- Load all prefs + reference data ---
   useEffect(() => {
     let alive = true
-    Promise.all([
+    Promise.allSettled([
       preferenceService.listOccupationPrefs(),
       preferenceService.listIndustryPrefs(),
       preferenceService.listLocationPrefs(),
@@ -110,8 +115,9 @@ export default function PreferencesPage() {
       referenceService.listIndustries(),
       referenceService.listEmploymentTypes(),
       referenceService.listWorkArrangements(),
-    ]).then(([occ, ind, loc, et, wa, indRef, etRef, waRef]) => {
+    ]).then((results) => {
       if (!alive) return
+      const [occ, ind, loc, et, wa, indRef, etRef, waRef] = results.map((result) => result.status === 'fulfilled' ? result.value : null)
       setOccPrefs(occ || [])
       setIndPrefs(ind || [])
       setLocPrefs(loc || [])
@@ -120,7 +126,8 @@ export default function PreferencesPage() {
       setIndustries(indRef || [])
       setEmpTypes(etRef || [])
       setWorkArrangements(waRef || [])
-    }).catch(() => {}).finally(() => {
+      setLoadError(results.some((result) => result.status === 'rejected'))
+    }).finally(() => {
       if (alive) {
         setOccLoading(false)
         setIndLoading(false)
@@ -130,7 +137,7 @@ export default function PreferencesPage() {
       }
     })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   useEffect(() => {
     if (profile) resetProfile({
@@ -147,13 +154,16 @@ export default function PreferencesPage() {
 
   // --- Occupation search ---
   useEffect(() => {
-    if (debouncedOccQuery.length < 2) { setOccResults([]); return }
+    if (debouncedOccQuery.length < 2) { setOccResults([]); setOccSearchError(false); setOccSearchLoading(false); return }
     let alive = true
+    setOccSearchLoading(true)
+    setOccSearchError(false)
     referenceService.searchOccupations(debouncedOccQuery)
       .then((rows) => { if (alive) setOccResults(rows || []) })
-      .catch(() => {})
+      .catch(() => { if (alive) { setOccResults([]); setOccSearchError(true) } })
+      .finally(() => { if (alive) setOccSearchLoading(false) })
     return () => { alive = false }
-  }, [debouncedOccQuery])
+  }, [debouncedOccQuery, occSearchRetry])
 
   async function addOccPref(occ) {
     try {
@@ -303,22 +313,27 @@ export default function PreferencesPage() {
     }
   }
 
-  if (loading || participantLoading || profileLoading || occLoading) {
-    return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading preferences…</main>
+  if (participantLoading || profileLoading || occLoading) {
+    return <PageLoadingState>Loading preferences…</PageLoadingState>
   }
 
+  if (participantError || profileError) return (
+    <main className="relative grid min-h-screen place-items-center bg-slate-50 px-4 dark:bg-slate-950">
+      <section role="alert" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 text-center dark:border-rose-900 dark:bg-slate-900">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Preferences couldn’t be loaded</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection, then reload this page.</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Reload preferences</button>
+      </section>
+    </main>
+  )
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4 sm:px-6">
-          <Link to="/profile" className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900">
-            <PixelArrow className="h-4 w-4 rotate-180" /> Profile
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <JobseekerRecordHeader />
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6">
+        {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p>Some preference lists or choices could not be loaded. Available sections are still usable, and saved choices may be incomplete.</p><button type="button" onClick={() => { setOccLoading(true); setLoadError(false); setReloadKey((key) => key + 1) }} className="mt-2 min-h-11 font-semibold underline">Reload preference data</button></div>}
         <div>
           <h1 className="text-xl font-bold text-slate-900">Preferences</h1>
           <p className="mt-1 text-sm text-slate-500">Tell us what you're looking for so we can match you with the right opportunities.</p>
@@ -339,7 +354,7 @@ export default function PreferencesPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No occupation preferences yet.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">No occupation preferences yet.</p>
           )}
           {!occSearchOpen ? (
             <button onClick={() => setOccSearchOpen(true)} className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">+ Add Occupation</button>
@@ -352,11 +367,13 @@ export default function PreferencesPage() {
                     {PRIORITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </label>
-                <label className="block flex-1 text-sm font-medium text-slate-700">
+              <label className="block flex-1 text-sm font-medium text-slate-700">
                   Search occupation
                   <input value={occQuery} onChange={(e) => setOccQuery(e.target.value)} className={`${input} mt-1`} placeholder="Type at least 2 characters…" autoFocus />
                 </label>
               </div>
+              {occSearchLoading && <p role="status" className="text-xs text-slate-500">Searching occupations…</p>}
+              {occSearchError && <p role="alert" className="text-xs text-rose-700">Occupation search failed. <button type="button" onClick={() => setOccSearchRetry((key) => key + 1)} className="min-h-10 font-semibold underline">Try again</button></p>}
               {occResults.length > 0 && (
                 <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm">
                   {occResults.map((occ) => (
@@ -374,7 +391,7 @@ export default function PreferencesPage() {
           {indPrefs.length > 0 ? (
             <div className="space-y-2">
               {indPrefs.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                   <span className="text-sm font-medium text-slate-900">{p.industries?.canonical_name || 'Unknown'}</span>
                   <button onClick={() => removeIndPref(p.id)} className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Remove</button>
                 </div>
@@ -397,7 +414,7 @@ export default function PreferencesPage() {
           {locPrefs.length > 0 ? (
             <div className="space-y-2">
               {locPrefs.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                   <div className="min-w-0 flex-1">
                     <span className="text-sm font-medium text-slate-900">
                       {[p.municipality_city, p.province].filter(Boolean).join(', ') || 'Unknown'}
@@ -435,7 +452,7 @@ export default function PreferencesPage() {
           {etPrefs.length > 0 ? (
             <div className="space-y-2">
               {etPrefs.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                   <span className="text-sm font-medium text-slate-900">{p.employment_types?.name || 'Unknown'}</span>
                   <button onClick={() => removeEtPref(p.id)} className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Remove</button>
                 </div>
@@ -458,7 +475,7 @@ export default function PreferencesPage() {
           {waPrefs.length > 0 ? (
             <div className="space-y-2">
               {waPrefs.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                   <span className="text-sm font-medium text-slate-900">{p.work_arrangements?.name || 'Unknown'}</span>
                   <button onClick={() => removeWaPref(p.id)} className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Remove</button>
                 </div>

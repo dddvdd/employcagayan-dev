@@ -13,6 +13,8 @@ dist-ssr
 *.local
 
 # Environment and secret files
+/psa.env
+/psa.env.txt
 .env
 .env.*
 !.env.example
@@ -24,21 +26,25 @@ credentials/
 *.credential
 *.credentials
 
-# Supabase CLI local state (machine-specific, contains project refs)
+# Supabase CLI local state and production project refs
 supabase/.temp/
+supabase-production/
+**/.temp/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
+[Dd]esktop.ini
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# Playwright
+# Playwright & Browser auth sessions
 /test-results/
 /playwright-report/
 /blob-report/
@@ -49,3 +55,25 @@ supabase/.temp/
 /coverage/
 /tmp/
 /temp/
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+
+# Local audit, analysis, and test run artifacts
+/artifacts/
+/graphify-out/
+/output/
+/strix/
+
+# Local agent & assistant directories
+/.agents/
+/.claude/
+/.kilo/
+/.opencode/
+/agent/
+

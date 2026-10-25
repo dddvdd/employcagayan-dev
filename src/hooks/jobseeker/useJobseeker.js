@@ -31,17 +31,18 @@ export function useParticipant(enabled = true) {
 export function useJobseekerProfile(participantId) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!participantId) { setLoading(false); return }
+    if (!participantId) { setProfile(null); setError(null); setLoading(false); return }
     let alive = true
     setLoading(true)
     participantService
       .fetchJobseekerProfile(participantId)
-      .then((row) => { if (alive) { setProfile(row); setLoading(false) } })
-      .catch(() => { if (alive) { setProfile(null); setLoading(false) } })
+      .then((row) => { if (alive) { setProfile(row); setError(null); setLoading(false) } })
+      .catch((err) => { if (alive) { setProfile(null); setError(err); setLoading(false) } })
     return () => { alive = false }
   }, [participantId])
 
-  return { profile, loading }
+  return { profile, loading, error }
 }

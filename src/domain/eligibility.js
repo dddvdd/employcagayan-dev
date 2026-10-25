@@ -1,3 +1,9 @@
+import {findQualification} from './qualificationIdentity.js'
+import {reviewVacancyRequirements} from './vacancyRequirementReadiness.js'
+import {DEFAULT_EDUCATION_RANKS,educationEvidence,experienceEvidence,certificationValidity,evidenceNeedsVerification,finiteNonNegative} from './qualificationEvidence.js'
+export {DEFAULT_EDUCATION_RANKS} from './qualificationEvidence.js'
+export const ELIGIBILITY_RULES_VERSION='eligibility-v3-canonical'
+
 // Deterministic Eligibility Engine (Phase 3A)
 // Pure, explainable, rule-based gatekeeper.
 // NO weighted scores, NO semantic vectors, NO LLM inference.
@@ -28,6 +34,7 @@ export const CHECK_CATEGORY = {
   LOCATION: 'location',
   SALARY: 'salary',
   AVAILABILITY: 'availability',
+  REQUIREMENT_REVIEW: 'requirement_review',
 }
 
 export const IMPORTANCE = {
@@ -42,6 +49,7 @@ export const REASON_CODES = {
   // Vacancy
   VACANCY_ACTIVE: 'VACANCY_ACTIVE',
   VACANCY_INACTIVE: 'VACANCY_INACTIVE',
+  VACANCY_TEXT_REQUIREMENT_UNRESOLVED: 'VACANCY_TEXT_REQUIREMENT_UNRESOLVED',
   APPLICATION_DEADLINE_VALID: 'APPLICATION_DEADLINE_VALID',
   APPLICATION_DEADLINE_PASSED: 'APPLICATION_DEADLINE_PASSED',
 
@@ -81,6 +89,9 @@ export const REASON_CODES = {
   LANGUAGE_REQUIREMENT_MET: 'LANGUAGE_REQUIREMENT_MET',
   LANGUAGE_REQUIREMENT_NOT_MET: 'LANGUAGE_REQUIREMENT_NOT_MET',
   LANGUAGE_PROFICIENCY_UNKNOWN: 'LANGUAGE_PROFICIENCY_UNKNOWN',
+  LANGUAGE_DATA_MISSING: 'LANGUAGE_DATA_MISSING',
+  QUALIFICATION_UNVERIFIED: 'QUALIFICATION_UNVERIFIED',
+  CERTIFICATION_VALIDITY_UNKNOWN: 'CERTIFICATION_VALIDITY_UNKNOWN',
   LANGUAGE_PREFERRED_MET: 'LANGUAGE_PREFERRED_MET',
   LANGUAGE_PREFERRED_NOT_MET: 'LANGUAGE_PREFERRED_NOT_MET',
 
@@ -122,74 +133,6 @@ export const LANGUAGE_PROFICIENCY_MAP = {
   advanced: 3,
   fluent: 4,
   native: 5,
-}
-
-export const DEFAULT_EDUCATION_RANKS = {
-  elementary: 10,
-  elementary_grad: 20,
-  junior_high: 30,
-  junior_high_grad: 40,
-  senior_high: 50,
-  senior_high_grad: 60,
-  vocational: 65,
-  associate: 70,
-  bachelor: 80,
-  postgraduate: 85,
-  master: 90,
-  doctorate: 100,
-}
-
-function mapLegacyEducationTextToRank(text) {
-  if (!text) return 0
-  const t = text.toLowerCase()
-  if (t.includes('doctorate') || t.includes('phd')) return 100
-  if (t.includes('master')) return 90
-  if (t.includes('postgraduate') || t.includes('post-graduate')) return 85
-  if (t.includes('bachelor') || t.includes('college')) return 80
-  if (t.includes('associate')) return 70
-  if (t.includes('vocational') || t.includes('tvet') || t.includes('tech-voc')) return 65
-  if (t.includes('senior high') && (t.includes('grad') || t.includes('complete'))) return 60
-  if (t.includes('senior high')) return 50
-  if (t.includes('junior high') && (t.includes('grad') || t.includes('complete') || t.includes('high school graduate'))) return 40
-  if (t.includes('junior high') || t.includes('high school')) return 30
-  if (t.includes('elementary') && (t.includes('grad') || t.includes('complete'))) return 20
-  if (t.includes('elementary')) return 10
-  return 0
-}
-
-function calculateCandidateExperienceMonths(workExperiences, { occupationId, industryId } = {}) {
-  if (!Array.isArray(workExperiences) || workExperiences.length === 0) return 0
-  const now = new Date()
-  let totalMonths = 0
-
-  for (const exp of workExperiences) {
-    if (occupationId && exp.occupation_id && exp.occupation_id !== occupationId) continue
-    if (industryId && exp.industry_id && exp.industry_id !== industryId) continue
-
-    if (!exp.start_date) continue
-    const start = new Date(`${exp.start_date.slice(0, 7)}-01T00:00:00`)
-    const end = (exp.is_current || !exp.end_date)
-      ? new Date(now.getFullYear(), now.getMonth(), 1)
-      : new Date(`${exp.end_date.slice(0, 7)}-01T00:00:00`)
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) continue
-    const months = ((end.getFullYear() - start.getFullYear()) * 12) + end.getMonth() - start.getMonth() + 1
-    totalMonths += Math.max(0, months)
-  }
-
-  return totalMonths
-}
-
-function isCertificationValid(candCert, currentDate) {
-  if (!candCert) return false
-  if (candCert.does_not_expire === true) return true
-  if (candCert.is_valid === false) return false
-  if (!candCert.expiration_date) return true
-
-  const now = currentDate ? new Date(currentDate) : new Date()
-  const exp = new Date(candCert.expiration_date)
-  if (Number.isNaN(exp.getTime())) return true
-  return exp.getTime() >= now.getTime()
 }
 
 /**
@@ -254,35 +197,27 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   // -------------------------------------------------------------
   const eduReqs = Array.isArray(vacancy.education_requirements) ? vacancy.education_requirements : []
   for (const req of eduReqs) {
-    const isRequired = req.importance === 'required'
+    const isRequired = (req.importance || IMPORTANCE.REQUIRED) === IMPORTANCE.REQUIRED
     const reqRank = req.rank ?? DEFAULT_EDUCATION_RANKS[req.level_code] ?? 0
 
-    let highestRank = 0
-    let bestEdu = null
-    const candEdus = Array.isArray(jobseeker.education) ? jobseeker.education : []
-
-    for (const edu of candEdus) {
-      const r = edu.rank ?? DEFAULT_EDUCATION_RANKS[edu.level_code] ?? 0
-      if (r > highestRank) {
-        highestRank = r
-        bestEdu = edu
-      }
+    const education = educationEvidence(jobseeker)
+    const highestRank = education.rank
+    const bestEdu = education.best
+    if (isRequired && education.unverified) {
+      checks.push({category:CHECK_CATEGORY.EDUCATION,status:CHECK_STATUS.UNKNOWN,importance:IMPORTANCE.REQUIRED,
+        code:REASON_CODES.QUALIFICATION_UNVERIFIED,message:'Education verification requires review',details:{required_rank:reqRank,candidate_rank:highestRank}})
+      continue
     }
-
-    if (highestRank === 0 && jobseeker.highest_educational_attainment) {
-      highestRank = mapLegacyEducationTextToRank(jobseeker.highest_educational_attainment)
-    }
-
-    if (highestRank === 0) {
+    if (highestRank == null || (education.incomplete && highestRank < reqRank)) {
       checks.push({
         category: CHECK_CATEGORY.EDUCATION,
-        status: isRequired ? CHECK_STATUS.FAIL : CHECK_STATUS.WARNING,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
         importance: req.importance || IMPORTANCE.REQUIRED,
-        code: isRequired ? REASON_CODES.EDUCATION_DATA_MISSING : REASON_CODES.EDUCATION_PREFERRED_NOT_MET,
+        code: REASON_CODES.EDUCATION_DATA_MISSING,
         message: isRequired
-          ? `Candidate has no education records (requires ${req.level_name || 'education level'})`
+          ? `Education evidence needs review (requires ${req.level_name || 'education level'})`
           : `Candidate has no record for preferred education: ${req.level_name || 'level'}`,
-        details: { required_rank: reqRank, candidate_rank: 0 },
+        details: { required_rank: reqRank, candidate_rank: highestRank },
       })
     } else if (highestRank < reqRank) {
       checks.push({
@@ -347,7 +282,7 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   // -------------------------------------------------------------
   const expReqs = Array.isArray(vacancy.experience_requirements) ? vacancy.experience_requirements : []
   for (const req of expReqs) {
-    const isRequired = req.importance === 'required'
+    const isRequired = (req.importance || IMPORTANCE.REQUIRED) === IMPORTANCE.REQUIRED
     const minMonths = req.minimum_months ?? 0
 
     if (minMonths === 0) {
@@ -362,12 +297,14 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
       continue
     }
 
-    let candMonths = calculateCandidateExperienceMonths(jobseeker.work_experiences, {
-      occupationId: req.occupation_id,
-      industryId: req.industry_id,
-    })
-    if (candMonths === 0 && jobseeker.years_of_experience) {
-      candMonths = Number(jobseeker.years_of_experience) * 12
+    const experience = experienceEvidence(jobseeker, {occupationId:req.occupation_id,industryId:req.industry_id,currentDate})
+    const candMonths = experience.months
+    if (candMonths == null || (experience.incomplete && candMonths < minMonths) || isRequired && experience.unverified) {
+      checks.push({category:CHECK_CATEGORY.EXPERIENCE,status:isRequired?CHECK_STATUS.UNKNOWN:CHECK_STATUS.WARNING,
+        importance:req.importance||IMPORTANCE.REQUIRED,code:REASON_CODES.EXPERIENCE_DATA_MISSING,
+        message:'Experience evidence needs review before the stated minimum can be confirmed',
+        details:{minimum_months:minMonths,candidate_months:candMonths,incomplete:experience.incomplete}})
+      continue
     }
 
     if (candMonths >= minMonths) {
@@ -398,16 +335,13 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   const candSkills = Array.isArray(jobseeker.skills) ? jobseeker.skills : []
 
   for (const vs of vacSkills) {
-    const isRequired = vs.importance === 'required'
-    const candSkill = candSkills.find(s =>
-      (vs.skill_id && s.skill_id === vs.skill_id) ||
-      (vs.canonical_name && s.canonical_name && s.canonical_name.toLowerCase() === vs.canonical_name.toLowerCase())
-    )
+    const isRequired = (vs.importance || IMPORTANCE.REQUIRED) === IMPORTANCE.REQUIRED
+    const candSkill = findQualification(candSkills,vs,'skill_id')
 
     if (!candSkill) {
       checks.push({
         category: CHECK_CATEGORY.SKILLS,
-        status: isRequired ? CHECK_STATUS.FAIL : CHECK_STATUS.WARNING,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
         importance: vs.importance || IMPORTANCE.REQUIRED,
         code: isRequired ? REASON_CODES.REQUIRED_SKILL_MISSING : REASON_CODES.PREFERRED_SKILL_MISSING,
         message: `${isRequired ? 'Required' : 'Preferred'} skill missing: ${vs.canonical_name}`,
@@ -416,15 +350,21 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
       continue
     }
 
+    if (isRequired && evidenceNeedsVerification(candSkill)) {
+      checks.push({category:CHECK_CATEGORY.SKILLS,status:CHECK_STATUS.UNKNOWN,importance:IMPORTANCE.REQUIRED,
+        code:REASON_CODES.QUALIFICATION_UNVERIFIED,message:'Recorded skill verification requires review',
+        details:{skill_id:vs.skill_id,skill_name:vs.canonical_name,verification_status:candSkill.verification_status}})
+      continue
+    }
     let profPass = true
     let profUnknown = false
     if (vs.minimum_proficiency) {
-      const reqProfRank = SKILL_PROFICIENCY_MAP[vs.minimum_proficiency.toLowerCase()] || 0
+      const reqProfRank = SKILL_PROFICIENCY_MAP[vs.minimum_proficiency.toLowerCase()] ?? null
       const candProfRank = candSkill.proficiency_level
-        ? (SKILL_PROFICIENCY_MAP[candSkill.proficiency_level.toLowerCase()] || 0)
+        ? (SKILL_PROFICIENCY_MAP[candSkill.proficiency_level.toLowerCase()] ?? null)
         : null
 
-      if (candProfRank === null) {
+      if (candProfRank === null || reqProfRank === null) {
         profUnknown = true
       } else if (candProfRank < reqProfRank) {
         profPass = false
@@ -434,7 +374,7 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
     let expPass = true
     let expUnknown = false
     if (vs.minimum_years_experience != null) {
-      if (candSkill.years_experience == null) {
+      if (finiteNonNegative(candSkill.years_experience) == null) {
         expUnknown = true
       } else if (Number(candSkill.years_experience) < Number(vs.minimum_years_experience)) {
         expPass = false
@@ -450,15 +390,6 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
         message: `Skill '${vs.canonical_name}' proficiency '${candSkill.proficiency_level}' below required '${vs.minimum_proficiency}'`,
         details: { skill_id: vs.skill_id, skill_name: vs.canonical_name },
       })
-    } else if (profUnknown && isRequired) {
-      checks.push({
-        category: CHECK_CATEGORY.SKILLS,
-        status: CHECK_STATUS.UNKNOWN,
-        importance: IMPORTANCE.REQUIRED,
-        code: REASON_CODES.SKILL_PROFICIENCY_UNKNOWN,
-        message: `Skill '${vs.canonical_name}' proficiency unspecified; vacancy requires '${vs.minimum_proficiency}' (requires review)`,
-        details: { skill_id: vs.skill_id, skill_name: vs.canonical_name },
-      })
     } else if (!expPass) {
       checks.push({
         category: CHECK_CATEGORY.SKILLS,
@@ -468,11 +399,20 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
         message: `Skill '${vs.canonical_name}' experience (${candSkill.years_experience} yrs) below required (${vs.minimum_years_experience} yrs)`,
         details: { skill_id: vs.skill_id, skill_name: vs.canonical_name },
       })
-    } else if (expUnknown && isRequired) {
+    } else if (profUnknown) {
       checks.push({
         category: CHECK_CATEGORY.SKILLS,
-        status: CHECK_STATUS.UNKNOWN,
-        importance: IMPORTANCE.REQUIRED,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
+        importance: vs.importance || IMPORTANCE.REQUIRED,
+        code: REASON_CODES.SKILL_PROFICIENCY_UNKNOWN,
+        message: `Skill '${vs.canonical_name}' proficiency unspecified; vacancy requires '${vs.minimum_proficiency}' (requires review)`,
+        details: { skill_id: vs.skill_id, skill_name: vs.canonical_name },
+      })
+    } else if (expUnknown) {
+      checks.push({
+        category: CHECK_CATEGORY.SKILLS,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
+        importance: vs.importance || IMPORTANCE.REQUIRED,
         code: REASON_CODES.SKILL_EXPERIENCE_UNKNOWN,
         message: `Skill '${vs.canonical_name}' years of experience unspecified`,
         details: { skill_id: vs.skill_id, skill_name: vs.canonical_name },
@@ -496,16 +436,13 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   const candCerts = Array.isArray(jobseeker.certifications) ? jobseeker.certifications : []
 
   for (const vc of certReqs) {
-    const isRequired = vc.importance === 'required'
-    const candCert = candCerts.find(c =>
-      (vc.certification_id && c.certification_id === vc.certification_id) ||
-      (vc.canonical_name && c.canonical_name && c.canonical_name.toLowerCase() === vc.canonical_name.toLowerCase())
-    )
+    const isRequired = (vc.importance || IMPORTANCE.REQUIRED) === IMPORTANCE.REQUIRED
+    const candCert = findQualification(candCerts,vc,'certification_id')
 
     if (!candCert) {
       checks.push({
         category: CHECK_CATEGORY.CERTIFICATIONS,
-        status: isRequired ? CHECK_STATUS.FAIL : CHECK_STATUS.WARNING,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
         importance: vc.importance || IMPORTANCE.REQUIRED,
         code: isRequired ? REASON_CODES.REQUIRED_CERTIFICATION_MISSING : REASON_CODES.PREFERRED_CERTIFICATION_MISSING,
         message: `${isRequired ? 'Required' : 'Preferred'} certification missing: ${vc.canonical_name || 'Certification'}`,
@@ -514,7 +451,16 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
       continue
     }
 
-    if (vc.must_be_valid && !isCertificationValid(candCert, currentDate)) {
+    const validity = certificationValidity(candCert,currentDate)
+    if (isRequired && evidenceNeedsVerification(candCert) || vc.must_be_valid && validity == null) {
+      checks.push({category:CHECK_CATEGORY.CERTIFICATIONS,status:isRequired?CHECK_STATUS.UNKNOWN:CHECK_STATUS.WARNING,
+        importance:vc.importance||IMPORTANCE.REQUIRED,
+        code:evidenceNeedsVerification(candCert)?REASON_CODES.QUALIFICATION_UNVERIFIED:REASON_CODES.CERTIFICATION_VALIDITY_UNKNOWN,
+        message:'Certification evidence needs review before its validity can be confirmed',
+        details:{certification_id:vc.certification_id,canonical_name:vc.canonical_name}})
+      continue
+    }
+    if (vc.must_be_valid && validity === false) {
       checks.push({
         category: CHECK_CATEGORY.CERTIFICATIONS,
         status: isRequired ? CHECK_STATUS.FAIL : CHECK_STATUS.WARNING,
@@ -542,25 +488,26 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   const candLangs = Array.isArray(jobseeker.languages) ? jobseeker.languages : []
 
   for (const vl of langReqs) {
-    const isRequired = vl.importance === 'required'
-    const candLang = candLangs.find(l =>
-      (vl.language_id && l.language_id === vl.language_id) ||
-      (vl.code && l.code && l.code.toLowerCase() === vl.code.toLowerCase()) ||
-      (vl.name && l.name && l.name.toLowerCase() === vl.name.toLowerCase())
-    )
+    const isRequired = (vl.importance || IMPORTANCE.REQUIRED) === IMPORTANCE.REQUIRED
+    const candLang = findQualification(candLangs,vl,'language_id',{label:'name',code:'code'})
 
     if (!candLang) {
       checks.push({
         category: CHECK_CATEGORY.LANGUAGES,
-        status: isRequired ? CHECK_STATUS.FAIL : CHECK_STATUS.WARNING,
+        status: isRequired ? CHECK_STATUS.UNKNOWN : CHECK_STATUS.WARNING,
         importance: vl.importance || IMPORTANCE.REQUIRED,
-        code: isRequired ? REASON_CODES.LANGUAGE_REQUIREMENT_NOT_MET : REASON_CODES.LANGUAGE_PREFERRED_NOT_MET,
+        code: REASON_CODES.LANGUAGE_DATA_MISSING,
         message: `${isRequired ? 'Required' : 'Preferred'} language missing: ${vl.name || vl.code}`,
         details: { language_id: vl.language_id, name: vl.name },
       })
       continue
     }
 
+    if (isRequired && evidenceNeedsVerification(candLang)) {
+      checks.push({category:CHECK_CATEGORY.LANGUAGES,status:CHECK_STATUS.UNKNOWN,importance:IMPORTANCE.REQUIRED,
+        code:REASON_CODES.QUALIFICATION_UNVERIFIED,message:'Recorded language verification requires review',details:{language_id:vl.language_id,name:vl.name}})
+      continue
+    }
     const dims = [
       { name: 'speaking', req: vl.minimum_speaking, cand: candLang.speaking_proficiency },
       { name: 'reading', req: vl.minimum_reading, cand: candLang.reading_proficiency },
@@ -573,8 +520,8 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
 
     for (const d of dims) {
       if (d.req) {
-        const reqRank = LANGUAGE_PROFICIENCY_MAP[d.req.toLowerCase()] || 0
-        if (!d.cand) {
+        const reqRank = LANGUAGE_PROFICIENCY_MAP[d.req.toLowerCase()] ?? null
+        if (!d.cand || reqRank == null || LANGUAGE_PROFICIENCY_MAP[d.cand.toLowerCase()] == null) {
           langUnknown = true
         } else {
           const candRank = LANGUAGE_PROFICIENCY_MAP[d.cand.toLowerCase()] || 0
@@ -838,6 +785,18 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
   }
 
   // -------------------------------------------------------------
+  // A free-text requirement cannot be treated as verified eligibility.
+  for (const warning of reviewVacancyRequirements(vacancy)) {
+    checks.push({
+      category: CHECK_CATEGORY.REQUIREMENT_REVIEW,
+      status: CHECK_STATUS.UNKNOWN,
+      importance: IMPORTANCE.REQUIRED,
+      code: REASON_CODES.VACANCY_TEXT_REQUIREMENT_UNRESOLVED,
+      message: `Vacancy ${warning.field.replaceAll('_', ' ')} may contain an unchecked mandatory requirement: "${warning.source}"`,
+      details: { source_field: warning.field, source_text: warning.source, kind: warning.kind },
+    })
+  }
+
   // AGGREGATE FINAL RESULT
   // -------------------------------------------------------------
   const blockingChecks = checks.filter(c => c.status === CHECK_STATUS.FAIL && c.importance === IMPORTANCE.REQUIRED)
@@ -852,7 +811,13 @@ export function evaluateEligibility(jobseeker = {}, vacancy = {}, options = {}) 
     finalStatus = ELIGIBILITY_STATUS.CONDITIONALLY_ELIGIBLE
   }
 
+  const requiredChecks=checks.filter(check=>check.importance===IMPORTANCE.REQUIRED)
   return {
+    rules_version:ELIGIBILITY_RULES_VERSION,
+    evaluated_at:currentDate.toISOString(),
+    data_confidence:{required_total:requiredChecks.length,required_known:requiredChecks.length-unknownRequiredChecks.length,
+      required_unknown:unknownRequiredChecks.length,required_failed:blockingChecks.length,
+      definition:'Recorded required-check coverage; not independently verified qualification or hiring probability'},
     status: finalStatus,
     checks,
     blocking_reasons: blockingChecks.map(c => c.code),

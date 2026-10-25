@@ -6,28 +6,37 @@ import { checkInService } from '../../services/checkInService'
 import { eventVacancyService } from '../../services/eventVacancyService'
 
 // ----- Pixel design tokens (shared with scanner/calendar pages) -----
-const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
+const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow dark:border-slate-700 dark:bg-slate-900'
 
 export default function CheckinPage() {
   const { registrantId } = useParams()
   const [registrant, setRegistrant] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     let alive = true
     async function loadData() {
+      setLoading(true)
+      setLoadError('')
+      setRegistrant(null)
       try {
         const [data, vacanciesWrap] = await Promise.all([
           registrantService.getById(registrantId),
           eventVacancyService.listForRegistrantDetail(registrantId),
         ])
         if (!alive) return
+        if (!data) {
+          setRegistrant(null)
+          return
+        }
         // Mirror the original shape: registrant_vacancies as a sibling array.
         const rvs = (vacanciesWrap?.registrant_vacancies || []).map((rv) => rv)
         setRegistrant({ ...(data || {}), registrant_vacancies: rvs })
       } catch (err) {
-        toast.error(`Could not fetch registrant details: ${err.message}`)
+        if (alive) setLoadError(err.message || 'Could not fetch registrant details.')
       } finally {
         if (alive) setLoading(false)
       }
@@ -35,7 +44,7 @@ export default function CheckinPage() {
 
     loadData()
     return () => { alive = false }
-  }, [registrantId])
+  }, [registrantId, reloadKey])
 
   async function handleCheckin() {
     if (!registrant) return
@@ -66,13 +75,24 @@ export default function CheckinPage() {
     )
   }
 
+  if (!registrant && loadError) {
+    return (
+      <section role="alert" className={`${PANEL} mx-auto max-w-2xl p-8 text-center`}>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Registrant details unavailable</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{loadError}</p>
+        <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="mt-5 min-h-11 rounded-lg bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button>
+        <Link to="/staff/search" className="ml-3 inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Back to search</Link>
+      </section>
+    )
+  }
+
   if (!registrant) {
     return (
       <div className={`${PANEL} p-8 text-center`}>
         <p className="font-mono text-xs font-bold uppercase tracking-widest text-slate-400">Not Found</p>
-        <h2 className="mt-1 text-xl font-black uppercase tracking-wide text-slate-900">Registrant Not Found</h2>
-        <p className="mt-2 text-slate-600">The requested registrant record could not be found.</p>
-        <Link to="/staff/search" className="mt-4 inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 bg-amber-400 px-4 text-xs font-bold uppercase tracking-wide text-slate-900 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">
+        <h2 className="mt-1 text-xl font-black uppercase tracking-wide text-slate-900 dark:text-slate-100">Registrant Not Found</h2>
+        <p className="mt-2 text-slate-600 dark:text-slate-300">The requested registrant record could not be found.</p>
+        <Link to="/staff/search" className="mt-4 inline-flex min-h-[44px] items-center rounded-lg border-2 border-slate-900 bg-amber-400 px-4 text-xs font-bold uppercase tracking-wide text-slate-900 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">
           ← Back to Search
         </Link>
       </div>
@@ -86,7 +106,7 @@ export default function CheckinPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/staff/search" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border-2 border-slate-900 bg-white px-4 text-xs font-bold uppercase tracking-wide text-slate-700 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300">
+        <Link to="/staff/search" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border-2 border-slate-900 bg-white px-4 text-xs font-bold uppercase tracking-wide text-slate-700 pixel-shadow-sm active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
           ← Back to Search
         </Link>
       </div>
@@ -112,7 +132,7 @@ export default function CheckinPage() {
         <div className="p-6 space-y-6">
           {/* Status Alert Banner */}
           {isCheckedIn ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
               <p className="font-bold flex items-center gap-2">✓ Applicant Checked In</p>
               <p className="mt-1 text-xs text-emerald-700">
                 Check-in timestamp: {registrant.check_in_time ? new Date(registrant.check_in_time).toLocaleString() : 'N/A'}
@@ -120,6 +140,7 @@ export default function CheckinPage() {
             </div>
           ) : (
             <button
+              type="button"
               onClick={handleCheckin}
               disabled={submitting}
               className="w-full rounded-xl border-2 border-slate-900 bg-emerald-400 py-3.5 text-center font-black uppercase tracking-wide text-slate-900 pixel-shadow active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-60"
@@ -130,15 +151,15 @@ export default function CheckinPage() {
 
           {/* Registrant details */}
           <div className="grid gap-4 sm:grid-cols-2 text-sm">
-            <div className="rounded-xl bg-slate-50 p-4 space-y-2">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Personal Info</h3>
+            <div className="rounded-xl bg-slate-50 p-4 space-y-2 dark:bg-slate-800">
+              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider dark:text-slate-100">Personal Info</h3>
               <p><span className="text-slate-500">Birthdate:</span> {registrant.birthdate || 'N/A'}</p>
               <p><span className="text-slate-500">Sex:</span> {registrant.sex || 'N/A'}</p>
               <p><span className="text-slate-500">Civil Status:</span> {registrant.civil_status || 'N/A'}</p>
               <p><span className="text-slate-500">Address:</span> {address || 'N/A'}</p>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-4 space-y-2">
+            <div className="rounded-xl bg-slate-50 p-4 space-y-2 dark:bg-slate-800">
               <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Contact & Event</h3>
               <p><span className="text-slate-500">Email:</span> {registrant.email || 'N/A'}</p>
               <p><span className="text-slate-500">Contact #:</span> {registrant.contact_no || 'N/A'}</p>
@@ -148,7 +169,7 @@ export default function CheckinPage() {
           </div>
 
           {/* Education & Employment */}
-          <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-2">
+          <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-2 dark:bg-slate-800">
             <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Education & Preference</h3>
             <div className="grid gap-2 sm:grid-cols-2">
               <p><span className="text-slate-500">Education:</span> {registrant.highest_educational_attainment || 'N/A'}</p>

@@ -1,15 +1,8 @@
-import { evaluateEligibility } from '../domain/eligibility.js'
-import { computeHybridScore, SEMANTIC_MODEL_VERSION } from '../domain/hybridMatching.js'
-import { scoreMatch } from '../domain/matching.js'
 import { buildMatchExplanation } from '../domain/matchExplanation.js'
 import { formatMatchExplanation } from '../domain/matchExplanationFormatter.js'
 import { buildMatchPresentation, MATCH_PRESENTATION_KIND } from '../domain/matchPresentation.js'
 import {
-  getJobseekerMatchProfile,
-  getVacancyMatchProfile,
-} from './eligibilityService'
-import {
-  getSemanticSimilarity,
+  scorePairHybrid,
   rankCandidatesHybrid,
   rankVacanciesHybrid,
 } from './semanticMatchingService'
@@ -26,18 +19,10 @@ export async function explainJobseekerVacancyPair(
   vacancyId,
   { direction = 'jobseeker_to_vacancy', currentDate, includeFormatted = true } = {},
 ) {
-  const [jobseeker, vacancy] = await Promise.all([
-    getJobseekerMatchProfile(jobseekerId),
-    getVacancyMatchProfile(vacancyId),
-  ])
-  const eligibility = evaluateEligibility(jobseeker, vacancy, { currentDate })
-  const deterministic = scoreMatch(jobseeker, vacancy, eligibility)
-  const semanticResult = await getSemanticSimilarity(jobseekerId, vacancyId)
-  const semantic = { ...semanticResult, model_version: SEMANTIC_MODEL_VERSION }
-  const hybrid = computeHybridScore(deterministic, semantic)
+  const context = await scorePairHybrid(jobseekerId, vacancyId, {currentDate, includeExplanationContext:true})
 
   return explainLoadedMatch(
-    { direction, jobseeker, vacancy, eligibility, deterministic, semantic, hybrid },
+    { direction, ...context },
     { includeFormatted },
   )
 }

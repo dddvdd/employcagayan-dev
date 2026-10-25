@@ -46,7 +46,7 @@ export function allowedTransitions(workflow, fromStage) {
 }
 
 export function formatWorkflowDiagram(workflow) {
-  if (!workflow) return []
+  if (!workflow) return { nodes: [], edges: [] }
   const nodes = new Set([...(workflow.initial ?? []), ...Object.keys(workflow.transitions ?? {})])
   const edges = []
   for (const [from, targets] of Object.entries(workflow.transitions ?? {})) {

@@ -1,0 +1,529 @@
+{
+  "dataset_version": "matching-evaluation-v1",
+  "dataset_id": "synthetic-matching-regression-v1",
+  "purpose": "synthetic_regression",
+  "origin": "synthetic",
+  "privacy_review_reference": null,
+  "as_of": "2026-10-15T00:00:00.000Z",
+  "reference_versions": {
+    "psoc": "synthetic-psoc-unverified",
+    "platform_skills": "synthetic-skills-v1"
+  },
+  "cases": [
+    {
+      "id": "job-linked",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "seeker-query",
+      "item_id": "vacancy-linked",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "conditionally_eligible",
+        "relevance": 2,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "f14d2464c2e57196a320b4d44eb646bb3e973497b54d3c5eea0dc0e8d75ae93d"
+      }
+    },
+    {
+      "id": "job-other",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "seeker-query",
+      "item_id": "vacancy-other",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d3000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture other skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": {
+          "status": "available",
+          "similarity": 1,
+          "embedding_version": "synthetic-semantic-v2"
+        }
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "conditionally_eligible",
+        "relevance": 1,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "94cebf208580f1b57e4df99986a83b958437a29817aa01fe3bd4ceedad8bf6ed"
+      }
+    },
+    {
+      "id": "job-exact",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "seeker-query",
+      "item_id": "vacancy-exact",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "eligible",
+        "relevance": 3,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "6ff1c09c0ab88228932ecf9c176f4fe45e6f69cbf7a6eeefb3a9e39e00e68418"
+      }
+    },
+    {
+      "id": "job-inactive",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "seeker-query",
+      "item_id": "vacancy-inactive",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": false,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "ineligible",
+        "relevance": 0,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "c9b6e1b65669b7893b1db84e210cff16bb5df364a2c56c37b7887ea7c04faaea"
+      }
+    },
+    {
+      "id": "candidate-linked",
+      "direction": "vacancy_to_candidate",
+      "query_id": "employer-query",
+      "item_id": "candidate-linked",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d1000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture source skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "conditionally_eligible",
+        "relevance": 2,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "a3c32b577909c1cb8927f7bdee5d11991fe8a1eaecb11f5b211a162770c05ecb"
+      }
+    },
+    {
+      "id": "candidate-exact",
+      "direction": "vacancy_to_candidate",
+      "query_id": "employer-query",
+      "item_id": "candidate-exact",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "proficiency_level": "advanced",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "eligible",
+        "relevance": 3,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "89c187234ad5acc43a9ee6794c12b60c8327beb2acfe127b9ca0536cb60fe24b"
+      }
+    },
+    {
+      "id": "candidate-below",
+      "direction": "vacancy_to_candidate",
+      "query_id": "employer-query",
+      "item_id": "candidate-below",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "proficiency_level": "beginner",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "ineligible",
+        "relevance": 0,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "ce550fd2eb18d5985efb286c956871c5c28231300e08bcb6d99b1c13f72a277c"
+      }
+    },
+    {
+      "id": "candidate-missing",
+      "direction": "vacancy_to_candidate",
+      "query_id": "employer-query",
+      "item_id": "candidate-missing",
+      "split": "validation",
+      "input": {
+        "jobseeker": {},
+        "vacancy": {
+          "is_active": true,
+          "skills": [
+            {
+              "skill_id": "d2000000-0000-4000-8000-000000000001",
+              "canonical_name": "Fixture target skill",
+              "importance": "required",
+              "minimum_proficiency": "advanced"
+            }
+          ]
+        },
+        "knowledge": {
+          "status": "available",
+          "snapshot": {
+            "knowledge_version": "skill-relationship-knowledge-v1",
+            "snapshot_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "relationships": [
+              {
+                "id": "d4000000-0000-4000-8000-000000000001",
+                "source_skill_id": "d1000000-0000-4000-8000-000000000001",
+                "target_skill_id": "d2000000-0000-4000-8000-000000000001",
+                "relationship_type": "transferable",
+                "revision": 1,
+                "reviewed_at": "2026-10-15T00:00:00.000Z",
+                "evidence_reference": "Synthetic regression only",
+                "taxonomy_source_id": "d5000000-0000-4000-8000-000000000001",
+                "source_code": "synthetic",
+                "source_version": "fixture-v1",
+                "source_skill_name": "Fixture source skill",
+                "target_skill_name": "Fixture target skill"
+              }
+            ]
+          }
+        },
+        "semantic": null
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-fixture-author",
+        "reviewed_at": "2026-10-15T01:00:00.000Z",
+        "expected_eligibility": "conditionally_eligible",
+        "relevance": 1,
+        "reason_codes": [
+          "SYNTHETIC_REGRESSION_EXPECTATION"
+        ],
+        "input_sha256": "c5345050739e5bdc61ecdbadf88de7373e852ac153717acf01ebdb7e7c095dbf"
+      }
+    }
+  ]
+}

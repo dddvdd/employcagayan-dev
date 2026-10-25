@@ -5,6 +5,7 @@ import { PANEL } from '../../components/intelligence/IntelligencePanels.jsx'
 export default function ProgramListPage() {
   const [programs, setPrograms] = useState({ status: 'loading', rows: [] })
   const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -13,10 +14,14 @@ export default function ProgramListPage() {
     ).then(({ data, error: err }) => {
       if (!alive) return
       if (err) { setError(err.message); setPrograms({ status: 'error', rows: [] }) }
-      else setPrograms({ status: 'ready', rows: data ?? [] })
+      else { setError(''); setPrograms({ status: 'ready', rows: data ?? [] }) }
+    }).catch((err) => {
+      if (!alive) return
+      setError(err?.message || 'Program records could not be loaded.')
+      setPrograms({ status: 'error', rows: [] })
     })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   return (
     <div className="min-w-0 space-y-6 p-4 sm:p-6 lg:p-8">
@@ -26,7 +31,7 @@ export default function ProgramListPage() {
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-600">View government employment program catalog records. Program data is private administrative information.</p>
       </header>
 
-      {error && <div className={PANEL} role="alert"><p className="text-sm text-red-700">{error}</p></div>}
+      {programs.status === 'error' && <div className={PANEL} role="alert"><p className="text-sm text-red-700">Programs couldn’t be loaded. {error}</p><button type="button" onClick={() => { setPrograms({ status: 'loading', rows: [] }); setReloadKey((key) => key + 1) }} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button></div>}
 
       {programs.status === 'loading' && (
         <div className={PANEL + ' min-h-48 motion-safe:animate-pulse'} aria-label="Loading programs" role="status">

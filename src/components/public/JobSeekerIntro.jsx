@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '../../contexts/AuthContext'
 import { PixelStar } from './pixel'
+import AccessibleDialog from '../ui/AccessibleDialog.jsx'
 
 export const INTRO_KEY = 'jobseeker_intro'
 
@@ -31,6 +32,7 @@ export default function JobSeekerIntro({ open, onClose }) {
   const [preference, setPreference] = useState('')
   const [interests, setInterests] = useState([])
   const [experience, setExperience] = useState('')
+  const [continuing, setContinuing] = useState(false)
 
   if (!open) return null
 
@@ -39,29 +41,36 @@ export default function JobSeekerIntro({ open, onClose }) {
   }
 
   async function handleContinue() {
+    if (continuing || !preference) return
+    setContinuing(true)
     try {
-      localStorage.setItem(INTRO_KEY, JSON.stringify({ preference, interests, experience }))
-    } catch {
-      // localStorage unavailable — proceed with sign-in anyway
+      try {
+        localStorage.setItem(INTRO_KEY, JSON.stringify({ preference, interests, experience }))
+      } catch {
+        // Continue with sign-in when browser storage is unavailable.
+      }
+      const { error } = await signInWithGoogle()
+      if (error) toast.error(error.message)
+    } catch (error) {
+      toast.error(error.message || 'Unable to start sign-in. Please try again.')
+    } finally {
+      setContinuing(false)
     }
-    const { error } = await signInWithGoogle()
-    if (error) toast.error(error.message)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <AccessibleDialog open onClose={onClose} closeDisabled={continuing} labelledBy="jobseeker-intro-title" className="max-w-md">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700">
               <PixelStar className="h-2.5 w-2.5 text-amber-500" /> Job Seeker Profile
             </p>
-            <h2 className="mt-1 text-xl font-bold text-slate-900">Before you continue...</h2>
+            <h2 id="jobseeker-intro-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">Before you continue...</h2>
             <p className="mt-1 text-sm text-slate-600">
               Tell us a little about yourself so we can help you discover opportunities that fit.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="-mr-2 -mt-1 grid h-11 w-11 shrink-0 place-items-center text-xl leading-none text-slate-400 hover:text-slate-600">×</button>
+          <button type="button" onClick={onClose} disabled={continuing} aria-label="Close" className="-mr-2 -mt-1 grid h-11 w-11 shrink-0 place-items-center text-xl leading-none text-slate-400 hover:text-slate-600 disabled:opacity-50">×</button>
         </div>
 
         <div className="mt-5 space-y-5">
@@ -138,16 +147,15 @@ export default function JobSeekerIntro({ open, onClose }) {
           </p>
           <button
             onClick={handleContinue}
-            disabled={!preference}
+            disabled={!preference || continuing}
             className="mt-3 min-h-11 w-full rounded-lg bg-blue-700 px-4 py-3 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Continue with Google
+            {continuing ? 'Connecting…' : 'Continue with Google'}
           </button>
           {!preference && (
             <p className="mt-2 text-center text-xs text-slate-400">Choose what you're looking for to continue.</p>
           )}
         </div>
-      </div>
-    </div>
+    </AccessibleDialog>
   )
 }

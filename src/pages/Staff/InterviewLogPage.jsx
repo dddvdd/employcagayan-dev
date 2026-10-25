@@ -21,16 +21,23 @@ const PANEL = 'rounded-2xl border-2 border-slate-900 bg-white pixel-shadow'
 const BTN_BASE = 'inline-flex items-center justify-center rounded-lg border-2 border-slate-900 font-black uppercase tracking-wide pixel-shadow active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
 
 export default function InterviewLogPage() {
-  const { events } = useStaffEventsAnyStatus()
+  const { events, error: eventsError, retry: retryEvents } = useStaffEventsAnyStatus()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
 
   const [registrant, setRegistrant] = useState(null)
   const [logs, setLogs] = useState([])
   const [companies, setCompanies] = useState([])
   const [positions, setPositions] = useState([])
   const [loadingLogs, setLoadingLogs] = useState(false)
+  const [loadingCompanies, setLoadingCompanies] = useState(false)
+  const [loadingPositions, setLoadingPositions] = useState(false)
+  const [logsError, setLogsError] = useState('')
+  const [applicationsError, setApplicationsError] = useState('')
+  const [companiesError, setCompaniesError] = useState('')
+  const [positionsError, setPositionsError] = useState('')
 
   const [form, setForm] = useState({ event_id: '', company_id: '', vacancy_id: '', interview_status: '', interview_notes: '', application_id: '' })
   const [submitting, setSubmitting] = useState(false)
@@ -41,12 +48,14 @@ export default function InterviewLogPage() {
     const q = searchQuery.trim()
     if (!q) return
     setSearching(true)
+    setSearchError('')
+    setSearchResults([])
     try {
       const rows = await registrantService.search(q)
       setSearchResults(rows || [])
       if (!rows?.length) toast.info('No matching registrant found.')
     } catch (err) {
-      toast.error(`Search failed: ${err.message}`)
+      setSearchError(err.message || 'Search failed. Please try again.')
     } finally {
       setSearching(false)
     }
@@ -66,11 +75,12 @@ export default function InterviewLogPage() {
 
   async function loadLogs(registrantId) {
     setLoadingLogs(true)
+    setLogsError('')
     try {
       const rows = await interviewService.listForRegistrantWithContext(registrantId)
       setLogs(rows || [])
     } catch (err) {
-      toast.error(`Could not load interview logs: ${err.message}`)
+      setLogsError(err.message || 'Could not load interview logs.')
       setLogs([])
     } finally {
       setLoadingLogs(false)
@@ -78,16 +88,20 @@ export default function InterviewLogPage() {
   }
 
   async function loadApplications(registrantId) {
+    setApplicationsError('')
     try {
       const rows = await applicationService.listForRegistrant(registrantId)
       setApplications(rows || [])
-    } catch {
+    } catch (err) {
+      setApplicationsError(err.message || 'Could not load linked applications.')
       setApplications([])
     }
   }
 
   async function loadCompanies(eventId) {
-    if (!eventId) { setCompanies([]); setPositions([]); return }
+    setCompaniesError('')
+    if (!eventId) { setCompanies([]); setPositions([]); setLoadingCompanies(false); return }
+    setLoadingCompanies(true)
     try {
       const rows = await eventVacancyService.listCompanyParticipants(eventId)
       const seen = new Set()
@@ -103,14 +117,18 @@ export default function InterviewLogPage() {
       setCompanies(list.sort((a, b) => a.company_name.localeCompare(b.company_name)))
       setPositions([])
     } catch (err) {
-      toast.error(`Could not load companies: ${err.message}`)
+      setCompaniesError(err.message || 'Could not load companies for this event.')
+    } finally {
+      setLoadingCompanies(false)
     }
   }
 
   async function handleCompanyChange(companyId) {
-    setForm(f => ({ ...f, company_id: companyId, vacancy_id: '' }))
+    setForm(f => ({ ...f, company_id: companyId, vacancy_id: '', application_id: '' }))
     setPositions([])
+    setPositionsError('')
     if (!companyId || !form.event_id) return
+    setLoadingPositions(true)
     try {
       const rows = await eventVacancyService.listPositionsForCompanyInEvent(form.event_id, companyId)
       const positions = (rows || [])
@@ -119,7 +137,9 @@ export default function InterviewLogPage() {
         .sort((a, b) => a.position.localeCompare(b.position))
       setPositions(positions)
     } catch (err) {
-      toast.error(`Could not load positions: ${err.message}`)
+      setPositionsError(err.message || 'Could not load positions for this company.')
+    } finally {
+      setLoadingPositions(false)
     }
   }
 
@@ -173,7 +193,11 @@ export default function InterviewLogPage() {
   const inputCls = 'w-full min-h-[48px] rounded-lg border-2 border-slate-900 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus-visible:ring-4 focus-visible:ring-amber-300'
   const name = registrant ? [registrant.first_name, registrant.middle_name, registrant.last_name].filter(Boolean).join(' ') : ''
 
-  const eventApps = applications.filter(a => String(a.event_vacancies?.event_id) === String(form.event_id))
+  const eventApps = applications.filter(a =>
+    form.vacancy_id && a.registrant_id === registrant?.id &&
+    a.vacancy_definition_id === form.vacancy_id &&
+    a.event_vacancies?.vacancy_definition_id === form.vacancy_id &&
+    a.event_vacancies?.event_id === form.event_id)
 
   return (
     <div className="space-y-6">
@@ -182,6 +206,8 @@ export default function InterviewLogPage() {
         <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">Interview Log</h1>
         <p className="mt-1 text-sm text-slate-600">Record interview results. For HOTS applicants, create the medical referral in the Medical Referral tab.</p>
       </div>
+
+      {eventsError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>Event choices couldn’t be loaded. Interview logs may not be assigned to the correct event until the list is available.</p><button type="button" onClick={retryEvents} className="mt-2 min-h-10 font-semibold underline">Reload events</button></div>}
 
       {!registrant ? (
         <div className={`p-6 ${PANEL}`}>
@@ -198,11 +224,13 @@ export default function InterviewLogPage() {
               {searching ? 'Searching...' : 'Search'}
             </button>
           </form>
+          {searchError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{searchError} Edit the query or select Search to retry.</p>}
 
           <div className="mt-4 space-y-2">
             {searchResults.map(reg => (
               <button
                 key={reg.id}
+                type="button"
                 onClick={() => selectRegistrant(reg)}
                 className="flex w-full flex-col items-start gap-1 rounded-xl border-2 border-slate-900 bg-white p-4 text-left pixel-shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300"
               >
@@ -247,18 +275,22 @@ export default function InterviewLogPage() {
                 </Field>
 
                 <Field label="Company / Agency *">
-                  <select className={inputCls} value={form.company_id} onChange={(e) => handleCompanyChange(e.target.value)} disabled={!form.event_id}>
-                    <option value="">{form.event_id ? 'Select company' : 'Select an event first'}</option>
+                  <select className={inputCls} value={form.company_id} onChange={(e) => handleCompanyChange(e.target.value)} disabled={!form.event_id || loadingCompanies}>
+                    <option value="">{!form.event_id ? 'Select an event first' : loadingCompanies ? 'Loading companies…' : companies.length ? 'Select company' : 'No companies available'}</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
                   </select>
                 </Field>
+                {companiesError && <p role="alert" className="text-sm text-rose-800">{companiesError} <button type="button" onClick={() => loadCompanies(form.event_id)} className="font-semibold underline">Try again</button></p>}
+                {!loadingCompanies && !companiesError && form.event_id && companies.length === 0 && <p className="text-sm text-slate-600">No participating companies are available for this event yet.</p>}
 
                 <Field label="Position *">
-                  <select className={inputCls} value={form.vacancy_id} onChange={(e) => setForm(f => ({ ...f, vacancy_id: e.target.value }))} disabled={!form.company_id}>
-                    <option value="">{form.company_id ? 'Select position' : 'Select a company first'}</option>
+                  <select className={inputCls} value={form.vacancy_id} onChange={(e) => setForm(f => ({ ...f, vacancy_id: e.target.value, application_id: '' }))} disabled={!form.company_id || loadingPositions}>
+                    <option value="">{!form.company_id ? 'Select a company first' : loadingPositions ? 'Loading positions…' : positions.length ? 'Select position' : 'No positions available'}</option>
                     {positions.map(p => <option key={p.id} value={p.id}>{p.position}</option>)}
                   </select>
                 </Field>
+                {positionsError && <p role="alert" className="text-sm text-rose-800">{positionsError} <button type="button" onClick={() => handleCompanyChange(form.company_id)} className="font-semibold underline">Try again</button></p>}
+                {!loadingPositions && !positionsError && form.company_id && positions.length === 0 && <p className="text-sm text-slate-600">No positions are listed for this company in the selected event.</p>}
 
                 <Field label="Interview status *">
                   <select className={inputCls} value={form.interview_status} onChange={(e) => setForm(f => ({ ...f, interview_status: e.target.value }))}>
@@ -283,6 +315,7 @@ export default function InterviewLogPage() {
                     </select>
                   </Field>
                 )}
+                {applicationsError && <p role="alert" className="text-sm text-amber-900">{applicationsError} This link is optional; you can still record the interview without it. <button type="button" onClick={() => loadApplications(registrant.id)} className="font-semibold underline">Retry lookup</button></p>}
 
                 <button
                   type="submit"
@@ -296,7 +329,13 @@ export default function InterviewLogPage() {
 
             <div className={`p-6 ${PANEL}`}>
               <h3 className="mb-4 font-mono text-xs font-bold uppercase tracking-widest text-slate-500">Existing interview logs</h3>
-              {loadingLogs ? (
+              {logsError ? (
+                <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                  <p className="font-semibold">Interview history could not be loaded.</p>
+                  <p className="mt-1">{logsError}</p>
+                  <button type="button" onClick={() => loadLogs(registrant.id)} className="mt-3 min-h-10 font-semibold underline">Try again</button>
+                </div>
+              ) : loadingLogs ? (
                 <div className="py-6 text-center" role="status">
                   <div className="flex items-center justify-center gap-1.5" aria-hidden>
                     {[0, 1, 2].map(i => (

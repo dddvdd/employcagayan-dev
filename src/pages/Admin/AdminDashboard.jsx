@@ -33,14 +33,18 @@ export default function AdminDashboard() {
   const [topPositions, setTopPositions] = useState([])
   const [recentRegistrants, setRecentRegistrants] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let alive = true
+    setLoading(true)
+    setLoadError(false)
     dashboardService.fetchDashboard()
       .then((d) => {
         if (!alive) return
         const { registrants, events, staff, interviewLogs, outcomes, applications } = d
-        if (!registrants) { setLoading(false); return }
+        if (!registrants) { setLoadError(true); setLoading(false); return }
 
         const today = format(new Date(), 'yyyy-MM-dd')
 
@@ -131,13 +135,23 @@ export default function AdminDashboard() {
 
         setRecentRegistrants(registrants.slice(0, 10))
       })
-      .catch((err) => { console.error('Failed to load dashboard data:', err) })
+      .catch((err) => { console.error('Failed to load dashboard data:', err); if (alive) setLoadError(true) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   if (loading) {
-    return <div className="grid min-h-screen place-items-center text-slate-600">Loading dashboard...</div>
+    return <div className="grid min-h-[400px] place-items-center text-sm text-slate-600 dark:text-slate-300" role="status">Loading dashboard…</div>
+  }
+
+  if (loadError) {
+    return (
+      <section role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+        <h1 className="text-lg font-bold">Dashboard data could not be loaded</h1>
+        <p className="mt-1 text-sm">Your summary will appear after the connection is restored.</p>
+        <button type="button" onClick={() => setReloadKey(key => key + 1)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+      </section>
+    )
   }
 
   return (

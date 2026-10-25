@@ -14,6 +14,7 @@ export default function ProgramDetailPage() {
   const [draft, setDraft] = useState({ cycleId: '', start: '', end: '' })
   const [filters, setFilters] = useState({ cycleId: '', start: '', end: '' })
   const [filterError, setFilterError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   function applyFilters(event) {
     event.preventDefault()
@@ -37,9 +38,9 @@ export default function ProgramDetailPage() {
       if (!alive) return
       if (error) setProgram({ status: 'error', data: null })
       else setProgram({ status: 'ready', data })
-    })
+    }).catch(() => { if (alive) setProgram({ status: 'error', data: null }) })
     return () => { alive = false }
-  }, [programId])
+  }, [programId, reloadKey])
 
   useEffect(() => {
     let alive = true
@@ -49,9 +50,9 @@ export default function ProgramDetailPage() {
       if (!alive) return
       if (error) setCycles({ status: 'error', rows: [] })
       else setCycles({ status: 'ready', rows: data ?? [] })
-    })
+    }).catch(() => { if (alive) setCycles({ status: 'error', rows: [] }) })
     return () => { alive = false }
-  }, [programId])
+  }, [programId, reloadKey])
 
   useEffect(() => {
     let alive = true
@@ -76,7 +77,7 @@ export default function ProgramDetailPage() {
 
   if (program.status === 'error' || !program.data) return (
     <div className="min-w-0 space-y-6 p-4 sm:p-6 lg:p-8">
-      <div className={PANEL} role="alert"><p className="text-sm text-red-700">Program not found.</p></div>
+      <div className={PANEL} role="alert"><p className="text-sm text-red-700">Program details couldn’t be loaded. It may no longer be available.</p><button type="button" onClick={() => { setProgram({ status: 'loading', data: null }); setReloadKey((key) => key + 1) }} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Try again</button></div>
     </div>
   )
 
@@ -139,6 +140,7 @@ export default function ProgramDetailPage() {
       <section aria-label="Program cycles">
         <h2 className="mb-3 text-lg font-bold text-slate-900">Cycles</h2>
         {cycles.status === 'loading' && <div className={PANEL + ' min-h-24 motion-safe:animate-pulse'} role="status"><span className="sr-only">Loading cycles</span></div>}
+        {cycles.status === 'error' && <div className={PANEL} role="alert"><p className="text-sm text-red-700">Program cycles couldn’t be loaded.</p><button type="button" onClick={() => { setCycles({ status: 'loading', rows: [] }); setReloadKey((key) => key + 1) }} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800">Reload program data</button></div>}
         {cycles.status === 'ready' && cycles.rows.length === 0 && (
           <div className={PANEL}><p className="text-sm text-slate-600">No cycles created for this program yet.</p></div>
         )}

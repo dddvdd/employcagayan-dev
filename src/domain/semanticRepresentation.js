@@ -5,12 +5,29 @@
 
 import { createHash } from 'crypto'
 
-export const SEMANTIC_VERSIONS = Object.freeze({
-  JOBSEEKER: 'jobseeker-semantic-v1',
-  VACANCY: 'vacancy-semantic-v1',
-  OCCUPATION: 'occupation-semantic-v1',
-  SKILL: 'skill-semantic-v1',
-})
+import {SEMANTIC_VERSIONS} from './semanticVersions.js'
+export {SEMANTIC_VERSIONS}
+
+const rowKey=value=>{
+ if(Array.isArray(value))return value.map(rowKey)
+ if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().filter(key=>key!=='id'&&!key.endsWith('_id')&&!['created_at','updated_at'].includes(key)).map(key=>[key,rowKey(value[key])]))
+ return value
+}
+function orderedProfile(profile){
+ const copy={...(profile||{})}
+ for(const [key,value] of Object.entries(copy))if(Array.isArray(value)){
+  copy[key]=value.filter(row=>row&&typeof row==='object').slice().sort((a,b)=>{
+   const priority=(a.priority??99)-(b.priority??99)
+   if(priority)return priority
+   if(key==='education'&&a.rank!==b.rank)return (b.rank??0)-(a.rank??0)
+   const ak=JSON.stringify(rowKey(a)),bk=JSON.stringify(rowKey(b))
+   return ak<bk?-1:ak>bk?1:0
+  })
+ }
+ return copy
+}
+const providedNumber=value=>typeof value==='number'&&Number.isFinite(value)
+
 
 /**
  * Builds a deterministic, privacy-safe text representation of a jobseeker profile.
@@ -21,6 +38,7 @@ export const SEMANTIC_VERSIONS = Object.freeze({
  * @returns {string} Canonical text representation
  */
 export function buildJobseekerEmbeddingText(matchProfile = {}) {
+  matchProfile=orderedProfile(matchProfile)
   const sections = []
 
   // Preferred occupations
@@ -32,7 +50,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
     for (const occ of occPrefs) {
       const priority = occ.priority === 1 ? ' (primary)' : 
                       occ.priority === 2 ? ' (secondary)' : ' (exploratory)'
-      sections.push(`- ${occ.occupation_name || occ.occupation_id || 'Unknown'}${priority}`)
+      sections.push(`- ${occ.canonical_name || occ.occupation_name || 'Unknown'}${priority}`)
     }
     sections.push('')
   }
@@ -44,7 +62,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
     for (const skill of skills) {
       const parts = [skill.canonical_name || skill.skill_id || 'Unknown']
       if (skill.proficiency_level) parts.push(`— ${skill.proficiency_level}`)
-      if (skill.years_experience) parts.push(`— ${skill.years_experience} years`)
+      if (providedNumber(skill.years_experience)) parts.push(`— ${skill.years_experience} years`)
       sections.push(`- ${parts.join(' ')}`)
     }
     sections.push('')
@@ -71,7 +89,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
     for (const exp of workExp) {
       const parts = []
       if (exp.position_title) parts.push(exp.position_title)
-      if (exp.company_name) parts.push(`at ${exp.company_name}`)
+      if (exp.employer_name || exp.company_name) parts.push(`at ${exp.employer_name || exp.company_name}`)
       if (exp.start_date) {
         const start = exp.start_date.slice(0, 7)
         const end = exp.is_current ? 'present' : (exp.end_date ? exp.end_date.slice(0, 7) : 'unknown')
@@ -116,7 +134,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
     sections.push('Target industries:')
     for (const ind of indPrefs) {
       const priority = ind.priority === 1 ? ' (primary)' : ' (secondary)'
-      sections.push(`- ${ind.industry_name || ind.industry_id || 'Unknown'}${priority}`)
+      sections.push(`- ${ind.canonical_name || ind.industry_name || 'Unknown'}${priority}`)
     }
     sections.push('')
   }
@@ -128,7 +146,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
   if (empPrefs.length > 0) {
     sections.push('Employment types:')
     for (const emp of empPrefs) {
-      sections.push(`- ${emp.employment_type_name || emp.employment_type_id || 'Unknown'}`)
+      sections.push(`- ${emp.name || emp.employment_type_name || 'Unknown'}`)
     }
     sections.push('')
   }
@@ -140,7 +158,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
   if (workPrefs.length > 0) {
     sections.push('Work arrangements:')
     for (const work of workPrefs) {
-      sections.push(`- ${work.work_arrangement_name || work.work_arrangement_id || 'Unknown'}`)
+      sections.push(`- ${work.name || work.work_arrangement_name || 'Unknown'}`)
     }
     sections.push('')
   }
@@ -176,13 +194,13 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
     sections.push(`Availability: ${matchProfile.availability_status}`)
   }
 
-  if (matchProfile.desired_salary_min || matchProfile.desired_salary_max) {
+  if (providedNumber(matchProfile.desired_salary_min) || providedNumber(matchProfile.desired_salary_max)) {
     const salaryParts = []
-    if (matchProfile.desired_salary_min) salaryParts.push(`min: ${matchProfile.desired_salary_min}`)
-    if (matchProfile.desired_salary_max) salaryParts.push(`max: ${matchProfile.desired_salary_max}`)
+    if (providedNumber(matchProfile.desired_salary_min)) salaryParts.push(`min: ${matchProfile.desired_salary_min}`)
+    if (providedNumber(matchProfile.desired_salary_max)) salaryParts.push(`max: ${matchProfile.desired_salary_max}`)
     if (matchProfile.desired_salary_currency) salaryParts.push(matchProfile.desired_salary_currency)
     if (matchProfile.desired_salary_period) salaryParts.push(`per ${matchProfile.desired_salary_period}`)
-    sections.push(`Salary期望: ${salaryParts.join(' ')}`)
+    sections.push(`Salary: ${salaryParts.join(' ')}`)
   }
 
   return sections.join('\n').trim()
@@ -196,6 +214,7 @@ export function buildJobseekerEmbeddingText(matchProfile = {}) {
  * @returns {string} Canonical text representation
  */
 export function buildVacancyEmbeddingText(matchProfile = {}) {
+  matchProfile=orderedProfile(matchProfile)
   const sections = []
 
   // Position and occupation
@@ -236,7 +255,7 @@ export function buildVacancyEmbeddingText(matchProfile = {}) {
     for (const skill of reqSkills) {
       const parts = [skill.canonical_name || skill.skill_id || 'Unknown']
       if (skill.minimum_proficiency) parts.push(`(min: ${skill.minimum_proficiency})`)
-      if (skill.minimum_years_experience) parts.push(`(${skill.minimum_years_experience} years)`)
+      if (providedNumber(skill.minimum_years_experience)) parts.push(`(${skill.minimum_years_experience} years)`)
       sections.push(`- ${parts.join(' ')}`)
     }
     sections.push('')
@@ -291,7 +310,7 @@ export function buildVacancyEmbeddingText(matchProfile = {}) {
     sections.push('Experience requirements:')
     for (const exp of expReqs) {
       const parts = []
-      if (exp.minimum_months) parts.push(`${exp.minimum_months} months minimum`)
+      if (providedNumber(exp.minimum_months)) parts.push(`${exp.minimum_months} months minimum`)
       if (exp.occupation_name) parts.push(`in ${exp.occupation_name}`)
       if (exp.importance === 'required') parts.push('(required)')
       sections.push(`- ${parts.join(' ')}`)
@@ -353,10 +372,10 @@ export function buildVacancyEmbeddingText(matchProfile = {}) {
   }
 
   // Salary
-  if (matchProfile.salary_min || matchProfile.salary_max) {
+  if (providedNumber(matchProfile.salary_min) || providedNumber(matchProfile.salary_max)) {
     const salaryParts = []
-    if (matchProfile.salary_min) salaryParts.push(`min: ${matchProfile.salary_min}`)
-    if (matchProfile.salary_max) salaryParts.push(`max: ${matchProfile.salary_max}`)
+    if (providedNumber(matchProfile.salary_min)) salaryParts.push(`min: ${matchProfile.salary_min}`)
+    if (providedNumber(matchProfile.salary_max)) salaryParts.push(`max: ${matchProfile.salary_max}`)
     if (matchProfile.salary_period) salaryParts.push(`per ${matchProfile.salary_period}`)
     sections.push(`Salary: ${salaryParts.join(' ')}`)
   }
@@ -373,8 +392,8 @@ export function buildVacancyEmbeddingText(matchProfile = {}) {
 export function buildOccupationEmbeddingText(occupation = {}) {
   const sections = []
 
-  if (occupation.name) {
-    sections.push(`Occupation: ${occupation.name}`)
+  if (occupation.canonical_name || occupation.name) {
+    sections.push(`Occupation: ${occupation.canonical_name || occupation.name}`)
   }
 
   if (occupation.description) {
@@ -401,8 +420,8 @@ export function buildOccupationEmbeddingText(occupation = {}) {
 export function buildSkillEmbeddingText(skill = {}) {
   const sections = []
 
-  if (skill.name) {
-    sections.push(`Skill: ${skill.name}`)
+  if (skill.canonical_name || skill.name) {
+    sections.push(`Skill: ${skill.canonical_name || skill.name}`)
   }
 
   if (skill.description) {

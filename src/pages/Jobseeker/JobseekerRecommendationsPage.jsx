@@ -18,11 +18,15 @@ export default function JobseekerRecommendationsPage() {
   const loadRecommendations = useCallback(async () => {
     if (!participant?.id) return
     setLoading(true)
+    setSelected(null)
     setError(null)
     try {
       setRecommendations(await getJobseekerRecommendations(participant.id))
-    } catch {
-      setError('We could not load your recommendations. Please try again.')
+    } catch (failure) {
+      setRecommendations([])
+      setError(failure?.code==='MATCH_SOURCE_CHANGED'
+        ? 'The matching information changed while your recommendations were being calculated. Please try again.'
+        : 'We could not load your recommendations. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -39,27 +43,27 @@ export default function JobseekerRecommendationsPage() {
     : error
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex min-h-11 items-center gap-2 font-mono text-xs font-bold uppercase tracking-widest text-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">
             <PixelArrow className="h-3 w-3 rotate-180" /> Quest Board
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link to="/profile" className="flex min-h-11 items-center rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">My Profile</Link>
+            <Link to="/profile" className="flex min-h-11 items-center rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900">My Profile</Link>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="grid gap-6 border-b-2 border-slate-900 pb-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+        <div className="grid gap-6 border-b-2 border-slate-900 pb-7 dark:border-slate-700 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
           <div>
             <p className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-700"><PixelStar className="h-3 w-3 text-amber-500" /> Profile-based matches</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Recommended Jobs</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Jobs that align with the structured employment information in your profile. Required qualifications still determine eligibility.</p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Jobs that align with the structured employment information in your profile. Required qualifications still determine eligibility.</p>
           </div>
-          <aside className="rounded-xl border-2 border-slate-900 bg-blue-50 p-4 text-sm leading-5 text-blue-950 pixel-shadow-sm" aria-label="About match scores">
+          <aside className="rounded-xl border-2 border-slate-900 bg-blue-50 p-4 text-sm leading-5 text-blue-950 pixel-shadow-sm dark:border-slate-700 dark:bg-blue-950 dark:text-blue-100" aria-label="About match scores">
             <span className="font-bold text-slate-900">Match score</span> compares your profile with each job. It helps explain fit and is not a hiring decision.
           </aside>
         </div>
@@ -68,7 +72,7 @@ export default function JobseekerRecommendationsPage() {
           {isLoading && <RecommendationSkeleton />}
 
           {!isLoading && safeError && (
-            <div role="alert" className="rounded-2xl border-2 border-red-900 bg-red-50 p-8 text-center pixel-shadow-sm">
+            <div role="alert" className="rounded-2xl border-2 border-red-900 bg-red-50 p-8 text-center pixel-shadow-sm dark:border-red-800 dark:bg-red-950">
               <h2 className="text-lg font-bold text-red-950">Recommendations are unavailable</h2>
               <p className="mt-2 text-sm text-red-900">{safeError}</p>
               {participant?.id && <button type="button" onClick={loadRecommendations} className="mt-5 min-h-11 rounded-lg border-2 border-slate-900 bg-white px-5 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300">Try again</button>}
@@ -76,10 +80,10 @@ export default function JobseekerRecommendationsPage() {
           )}
 
           {!isLoading && !safeError && recommendations.length === 0 && (
-            <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+            <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-900">
               <PixelBriefcase className="mx-auto h-7 w-7 text-blue-700" />
               <h2 className="mt-4 text-xl font-bold">No eligible recommendations yet</h2>
-              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600">Complete your job preferences and qualifications, then check again as new vacancies are published.</p>
+              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600 dark:text-slate-300">Complete your job preferences and qualifications, then check again as new vacancies are published.</p>
               <Link to="/jobseeker/preferences" className="mt-5 inline-flex min-h-11 items-center rounded-lg bg-blue-700 px-5 text-sm font-bold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Review job preferences</Link>
             </div>
           )}

@@ -1,9 +1,10 @@
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { employmentService } from '../../services/employmentService'
 import { employerService } from '../../services/employerService'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
 
 const OUTCOME_OPTIONS = ['pending', 'hired', 'not_hired', 'offer_declined', 'withdrawn']
 const OUTCOME_LABELS = { pending: 'Pending', hired: 'Hired', not_hired: 'Not Hired', offer_declined: 'Offer Declined', withdrawn: 'Withdrawn' }
@@ -19,6 +20,7 @@ export default function EmploymentOutcomes() {
   const [outcomes, setOutcomes] = useState([])
   const [employers, setEmployers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [outcomeFilter, setOutcomeFilter] = useState('all')
   const [employerFilter, setEmployerFilter] = useState('all')
@@ -39,6 +41,7 @@ export default function EmploymentOutcomes() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError('')
     try {
       const [outcomeData, empData] = await Promise.all([
         employmentService.listOutcomes(),
@@ -47,7 +50,7 @@ export default function EmploymentOutcomes() {
       setOutcomes(outcomeData || [])
       setEmployers(empData || [])
     } catch (err) {
-      toast.error(`Failed to load: ${err.message}`)
+      setLoadError(err.message || 'Could not load employment outcomes.')
     } finally {
       setLoading(false)
     }
@@ -94,7 +97,7 @@ export default function EmploymentOutcomes() {
     if (!editingOutcome) return
     setSubmitting(true)
     try {
-      await employmentService.updateOutcome(editingOutcome.id, {
+      const update = {
         outcome: formData.outcome,
         hired_at: formData.hired_at || null,
         position_held: formData.position_held || null,
@@ -102,12 +105,11 @@ export default function EmploymentOutcomes() {
         salary: formData.salary || null,
         start_date: formData.start_date || null,
         verification_notes: formData.verification_notes || null,
-        verified_by: editingOutcome.verified_by || null,
-        verification_date: formData.outcome !== 'pending' ? new Date().toISOString() : null,
-      })
+      }
+      const saved = await employmentService.updateOutcome(editingOutcome.id, update)
+      setOutcomes(current => current.map(item => item.id === editingOutcome.id ? { ...item, ...saved } : item))
       toast.success('Outcome updated')
       setShowModal(false)
-      await loadData()
     } catch (err) {
       toast.error(`Failed: ${err.message}`)
     } finally {
@@ -126,7 +128,7 @@ export default function EmploymentOutcomes() {
       'Salary': o.salary || '',
       'Verified': o.verification_date ? format(new Date(o.verification_date), 'MMM d, yyyy') : '',
     }))
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -135,27 +137,30 @@ export default function EmploymentOutcomes() {
     toast.success(`Exported ${rows.length} outcomes`)
   }
 
-  const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
+  const inputCls = 'min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 focus-visible:border-blue-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-900'
 
-  if (loading) return <div className="grid min-h-[400px] place-items-center text-slate-500">Loading...</div>
+  if (loading) return <div className="grid min-h-[400px] place-items-center text-sm text-slate-500" role="status">Loading employment outcomes…</div>
+  if (loadError) return <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"><h1 className="font-semibold">Employment outcomes could not be loaded.</h1><p className="mt-1">{loadError}</p><button type="button" onClick={loadData} className="mt-3 min-h-11 rounded-lg bg-blue-700 px-4 font-semibold text-white hover:bg-blue-800">Try again</button></section>
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Employment Outcomes</h1>
-          <p className="text-sm text-slate-600">{filteredOutcomes.length} outcome(s)</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Employment Outcomes</h1>
+          <p aria-live="polite" className="text-sm text-slate-600">{filteredOutcomes.length} of {outcomes.length} outcomes</p>
         </div>
-        <button onClick={exportCSV} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Export CSV</button>
+        <button type="button" onClick={exportCSV} disabled={!filteredOutcomes.length} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-blue-900">Export CSV</button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-6">
+      <div role="group" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" aria-label="Filter outcomes by status">
         {['all', ...OUTCOME_OPTIONS].map(status => (
           <button
+            type="button"
             key={status}
             onClick={() => setOutcomeFilter(status)}
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-              outcomeFilter === status ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            aria-pressed={outcomeFilter === status}
+            className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:focus-visible:ring-blue-900 ${
+              outcomeFilter === status ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
             }`}
           >
             {status === 'all' ? 'All' : OUTCOME_LABELS[status]} ({outcomeCounts[status] || 0})
@@ -163,23 +168,24 @@ export default function EmploymentOutcomes() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <select value={employerFilter} onChange={(e) => setEmployerFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+      <div role="group" className="flex flex-col gap-3 sm:flex-row" aria-label="Filter outcomes">
+        <select aria-label="Filter by employer" value={employerFilter} onChange={(e) => setEmployerFilter(e.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus-visible:ring-blue-900 sm:w-auto">
           <option value="all">All Employers</option>
           {employers.map(em => <option key={em.id} value={em.id}>{em.company_name}</option>)}
         </select>
         <input
           type="text"
+          aria-label="Search employment outcomes"
           placeholder="Search by name, ID, company, position..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-900 sm:max-w-sm"
         />
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
+          <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
             <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3">Applicant</th>
               <th className="px-4 py-3">Company</th>
@@ -190,9 +196,9 @@ export default function EmploymentOutcomes() {
               <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {filteredOutcomes.map(o => (
-              <tr key={o.id} className="hover:bg-slate-50">
+              <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
                 <td className="px-4 py-3 font-medium text-slate-900">
                   {[o.applications?.registrants?.first_name, o.applications?.registrants?.last_name].filter(Boolean).join(' ')}
                 </td>
@@ -206,61 +212,61 @@ export default function EmploymentOutcomes() {
                 <td className="px-4 py-3 text-slate-600">{o.salary || '—'}</td>
                 <td className="px-4 py-3 text-xs text-slate-500">{o.verification_date ? format(new Date(o.verification_date), 'MMM d, yyyy') : '—'}</td>
                 <td className="px-4 py-3">
-                  <button onClick={() => openEdit(o)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
+                  <button onClick={() => openEdit(o)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Edit</button>
                 </td>
               </tr>
             ))}
             {filteredOutcomes.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No outcomes found</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                {outcomes.length === 0 ? 'No employment outcomes have been recorded yet.' : <div className="space-y-2"><p>No outcomes match these filters.</p><button type="button" onClick={() => { setSearchQuery(''); setOutcomeFilter('all'); setEmployerFilter('all') }} className="min-h-11 rounded-lg px-3 font-semibold text-blue-700 underline underline-offset-2">Clear filters</button></div>}
+              </td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       {showModal && editingOutcome && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModal(false)}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-4">Update Employment Outcome</h2>
+        <AccessibleDialog open onClose={() => setShowModal(false)} closeDisabled={submitting} labelledBy="employment-outcome-title" className="max-w-lg">
+            <h2 id="employment-outcome-title" className="mb-4 text-lg font-bold text-slate-900">Update Employment Outcome</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700">Outcome</label>
-                <select className={inputCls} value={formData.outcome} onChange={(e) => setFormData({ ...formData, outcome: e.target.value })}>
+                <label htmlFor="employment-outcome" className="block text-sm font-medium text-slate-700">Outcome</label>
+                <select id="employment-outcome" className={inputCls} value={formData.outcome} onChange={(e) => setFormData({ ...formData, outcome: e.target.value })}>
                   {OUTCOME_OPTIONS.map(s => <option key={s} value={s}>{OUTCOME_LABELS[s]}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Hired Date</label>
-                <input type="date" className={inputCls} value={formData.hired_at} onChange={(e) => setFormData({ ...formData, hired_at: e.target.value })} />
+                <label htmlFor="outcome-hired-date" className="block text-sm font-medium text-slate-700">Hired Date</label>
+                <input id="outcome-hired-date" type="date" className={inputCls} value={formData.hired_at} onChange={(e) => setFormData({ ...formData, hired_at: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Position Held</label>
-                <input className={inputCls} value={formData.position_held} onChange={(e) => setFormData({ ...formData, position_held: e.target.value })} />
+                <label htmlFor="outcome-position" className="block text-sm font-medium text-slate-700">Position Held</label>
+                <input id="outcome-position" className={inputCls} value={formData.position_held} onChange={(e) => setFormData({ ...formData, position_held: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Company</label>
-                <input className={inputCls} value={formData.company} onChange={(e) => setFormData({ ...formData, company: e.target.value })} />
+                <label htmlFor="outcome-company" className="block text-sm font-medium text-slate-700">Company</label>
+                <input id="outcome-company" className={inputCls} value={formData.company} onChange={(e) => setFormData({ ...formData, company: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Salary</label>
-                <input className={inputCls} value={formData.salary} onChange={(e) => setFormData({ ...formData, salary: e.target.value })} />
+                <label htmlFor="outcome-salary" className="block text-sm font-medium text-slate-700">Salary</label>
+                <input id="outcome-salary" className={inputCls} value={formData.salary} onChange={(e) => setFormData({ ...formData, salary: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Start Date</label>
-                <input type="date" className={inputCls} value={formData.start_date} onChange={(e) => setFormData({ ...formData, start_date: e.target.value })} />
+                <label htmlFor="outcome-start-date" className="block text-sm font-medium text-slate-700">Start Date</label>
+                <input id="outcome-start-date" type="date" className={inputCls} value={formData.start_date} onChange={(e) => setFormData({ ...formData, start_date: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Verification Notes</label>
-                <textarea className={inputCls} rows={3} value={formData.verification_notes} onChange={(e) => setFormData({ ...formData, verification_notes: e.target.value })} />
+                <label htmlFor="outcome-verification-notes" className="block text-sm font-medium text-slate-700">Verification Notes</label>
+                <textarea id="outcome-verification-notes" className={inputCls} rows={3} value={formData.verification_notes} onChange={(e) => setFormData({ ...formData, verification_notes: e.target.value })} />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowModal(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={() => setShowModal(false)} disabled={submitting} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                 <button onClick={handleUpdate} disabled={submitting} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
                   {submitting ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   )

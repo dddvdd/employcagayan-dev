@@ -1,8 +1,8 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
 import { metricView, breakdownRows } from '../../domain/employmentIntelligenceDashboard.js'
 
-export const PANEL = 'rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
-export const BUTTON = 'min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300'
+export const PANEL = 'rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900'
+export const BUTTON = 'min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:focus-visible:ring-blue-900'
 
 export function MetricState({ view }) {
   return <span data-metric-state={view.state} className="break-words text-2xl font-bold tabular-nums text-slate-900">{view.display}</span>

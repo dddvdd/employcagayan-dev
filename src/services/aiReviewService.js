@@ -11,13 +11,12 @@ import { unwrap } from '../lib/errors.js'
  * @returns {Promise<Array>}
  */
 export async function listPendingSuggestions({ entityType, entityId, resolutionStatus } = {}) {
-  const { data, error } = await supabase.rpc('list_pending_suggestions', {
+  const { data, error } = await supabase.rpc('list_pending_suggestions_v2', {
     p_entity_type: entityType || null,
     p_entity_id: entityId || null,
     p_resolution_status: resolutionStatus || null,
   })
-  if (error) throw unwrap(error)
-  return data || []
+  return unwrap({ data, error }, 'Could not load AI review suggestions') || []
 }
 
 /**
@@ -31,8 +30,7 @@ export async function getSuggestion(suggestionId) {
     .select('*')
     .eq('id', suggestionId)
     .single()
-  if (error) throw unwrap(error)
-  return data
+  return unwrap({ data, error }, 'Could not complete AI review request')
 }
 
 /**
@@ -46,8 +44,7 @@ export async function acceptSuggestion(suggestionId, editedCanonicalId) {
     p_suggestion_id: suggestionId,
     p_edited_canonical_id: editedCanonicalId || null,
   })
-  if (error) throw unwrap(error)
-  return data
+  return unwrap({ data, error }, 'Could not complete AI review request')
 }
 
 /**
@@ -61,8 +58,7 @@ export async function rejectSuggestion(suggestionId, reviewNote) {
     p_suggestion_id: suggestionId,
     p_review_note: reviewNote || null,
   })
-  if (error) throw unwrap(error)
-  return data
+  return unwrap({ data, error }, 'Could not complete AI review request')
 }
 
 /**
@@ -72,14 +68,17 @@ export async function rejectSuggestion(suggestionId, reviewNote) {
  * @param {string} editedCanonicalId
  * @returns {Promise<object>}
  */
-export async function editSuggestion(suggestionId, editedTerm, editedCanonicalId) {
+export async function editSuggestion(suggestionId, editedTerm, editedCanonicalId, details) {
+  if (details) {
+    const {data,error} = await supabase.rpc('edit_ai_requirement_suggestion', {p_suggestion_id:suggestionId,p_edited_term:editedTerm,p_edited_canonical_id:editedCanonicalId,p_importance:details.importance,p_minimum_months:details.minimum_months})
+    return unwrap({data,error}, 'Could not complete requirement review')
+  }
   const { data, error } = await supabase.rpc('edit_ai_suggestion', {
     p_suggestion_id: suggestionId,
     p_edited_term: editedTerm,
     p_edited_canonical_id: editedCanonicalId,
   })
-  if (error) throw unwrap(error)
-  return data
+  return unwrap({ data, error }, 'Could not complete AI review request')
 }
 
 /**

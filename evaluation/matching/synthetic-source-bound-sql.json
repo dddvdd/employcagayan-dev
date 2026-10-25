@@ -1,0 +1,199 @@
+{
+  "dataset_version": "matching-evaluation-v2",
+  "dataset_id": "synthetic-source-bound-sql",
+  "purpose": "synthetic_regression",
+  "origin": "synthetic",
+  "privacy_review_reference": null,
+  "as_of": "2026-10-16T01:35:02.991Z",
+  "reference_versions": {
+    "psoc": "synthetic-no-psoc-reference",
+    "platform_skills": "synthetic-sql-fixture-v1"
+  },
+  "cases": [
+    {
+      "id": "a-keyword-zero",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "synthetic-seeker",
+      "item_id": "a-keyword-zero",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "22d0f013-92b2-48e6-a0c3-42d427c3cd70",
+              "canonical_name": "Quantum Welding",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true
+        },
+        "knowledge": {
+          "status": "unavailable",
+          "reason": "knowledge_unavailable",
+          "snapshot": null
+        },
+        "bound_signals": {
+          "provenance": {
+            "kind": "synthetic_sql",
+            "reference": "isolated-postgresql-fixture",
+            "sql_sha256": "629be7a00bf0e9ce0ce07425757c996467a8edc9895b4880786ed884b666f9de"
+          },
+          "sources": {
+            "jobseeker": {
+              "version": "matching-source-v1",
+              "hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849"
+            },
+            "vacancy": {
+              "version": "matching-source-v1",
+              "hash": "e636544cf66b75ff7dddc2523b72a6534c35855a291453acc6a63b7d558cf752"
+            }
+          },
+          "versions": {
+            "jobseeker": "jobseeker-semantic-v2",
+            "vacancy": "vacancy-semantic-v2"
+          },
+          "event_alias": null,
+          "transport": "success",
+          "response": {
+            "jobseeker_alias": "synthetic-seeker",
+            "vacancy_alias": "a-keyword-zero",
+            "event_alias": null,
+            "binding_version": "matching-signals-v1",
+            "status": "bound",
+            "observed_at": "2026-10-16T01:35:02.991Z",
+            "jobseeker_source_hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849",
+            "vacancy_source_hash": "e636544cf66b75ff7dddc2523b72a6534c35855a291453acc6a63b7d558cf752",
+            "knowledge_snapshot_hash": null,
+            "keyword": {
+              "rank": 0,
+              "score": 0,
+              "reason": null,
+              "status": "available",
+              "text_config": "simple",
+              "matched_terms": [],
+              "model_version": "keyword-fts-v1",
+              "source_version": "matching-source-v1",
+              "query_term_count": 2,
+              "matched_term_count": 0,
+              "vacancy_source_hash": "e636544cf66b75ff7dddc2523b72a6534c35855a291453acc6a63b7d558cf752",
+              "qualification_credit": false,
+              "jobseeker_source_hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849"
+            },
+            "semantic": {
+              "status": "missing",
+              "similarity": null,
+              "embedding_version": "semantic-v2-authorized/jobseeker-semantic-v2+vacancy-semantic-v2"
+            }
+          }
+        }
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-code-expectation",
+        "reviewed_at": "2026-10-16T01:35:02.991Z",
+        "expected_eligibility": "eligible",
+        "relevance": 0,
+        "reason_codes": [
+          "SYNTHETIC_KEYWORD_ORDER"
+        ],
+        "input_sha256": "f65ca4400c08824ca54458efb4c3125dd129a7ad72cd88f26432b7698861e577"
+      }
+    },
+    {
+      "id": "z-keyword-match",
+      "direction": "jobseeker_to_vacancy",
+      "query_id": "synthetic-seeker",
+      "item_id": "z-keyword-match",
+      "split": "validation",
+      "input": {
+        "jobseeker": {
+          "skills": [
+            {
+              "skill_id": "22d0f013-92b2-48e6-a0c3-42d427c3cd70",
+              "canonical_name": "Quantum Welding",
+              "verification_status": "verified"
+            }
+          ]
+        },
+        "vacancy": {
+          "is_active": true
+        },
+        "knowledge": {
+          "status": "unavailable",
+          "reason": "knowledge_unavailable",
+          "snapshot": null
+        },
+        "bound_signals": {
+          "provenance": {
+            "kind": "synthetic_sql",
+            "reference": "isolated-postgresql-fixture",
+            "sql_sha256": "629be7a00bf0e9ce0ce07425757c996467a8edc9895b4880786ed884b666f9de"
+          },
+          "sources": {
+            "jobseeker": {
+              "version": "matching-source-v1",
+              "hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849"
+            },
+            "vacancy": {
+              "version": "matching-source-v1",
+              "hash": "5a901f0f0df6d69a9cf7868d0ee8d76d749619fae7c1fe044733c8bdd5db21b9"
+            }
+          },
+          "versions": {
+            "jobseeker": "jobseeker-semantic-v2",
+            "vacancy": "vacancy-semantic-v2"
+          },
+          "event_alias": null,
+          "transport": "success",
+          "response": {
+            "jobseeker_alias": "synthetic-seeker",
+            "vacancy_alias": "z-keyword-match",
+            "event_alias": null,
+            "binding_version": "matching-signals-v1",
+            "status": "bound",
+            "observed_at": "2026-10-16T01:35:02.991Z",
+            "jobseeker_source_hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849",
+            "vacancy_source_hash": "5a901f0f0df6d69a9cf7868d0ee8d76d749619fae7c1fe044733c8bdd5db21b9",
+            "knowledge_snapshot_hash": null,
+            "keyword": {
+              "rank": 0.16666667,
+              "score": 100,
+              "reason": null,
+              "status": "available",
+              "text_config": "simple",
+              "matched_terms": [
+                "quantum",
+                "welding"
+              ],
+              "model_version": "keyword-fts-v1",
+              "source_version": "matching-source-v1",
+              "query_term_count": 2,
+              "matched_term_count": 2,
+              "vacancy_source_hash": "5a901f0f0df6d69a9cf7868d0ee8d76d749619fae7c1fe044733c8bdd5db21b9",
+              "qualification_credit": false,
+              "jobseeker_source_hash": "a918f60b5832f06ad8a8be3b74739c5cbc056a67d948ef29ca460ac9ae753849"
+            },
+            "semantic": {
+              "status": "missing",
+              "similarity": null,
+              "embedding_version": "semantic-v2-authorized/jobseeker-semantic-v2+vacancy-semantic-v2"
+            }
+          }
+        }
+      },
+      "review": {
+        "status": "approved",
+        "reviewer_alias": "synthetic-code-expectation",
+        "reviewed_at": "2026-10-16T01:35:02.991Z",
+        "expected_eligibility": "eligible",
+        "relevance": 3,
+        "reason_codes": [
+          "SYNTHETIC_KEYWORD_ORDER"
+        ],
+        "input_sha256": "07786b2da4421b221c74b4af66fed48144aa776ea76b83ac0134c4021d8bf988"
+      }
+    }
+  ]
+}

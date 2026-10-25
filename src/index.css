@@ -15,14 +15,15 @@
    ============================================================ */
 .dark {
   color-scheme: dark;
+  --ui-canvas: #0b1220;
+  --ui-surface: #111b2c;
+  --ui-line: #283548;
+  --ui-text: #e2e8f0;
+  --ui-muted: #94a3b8;
 }
 .dark body {
-  background-color: #0d0f12;
-  color: #f0f2f5;
-}
-.dark,
-.dark * {
-  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  background-color: var(--ui-canvas);
+  color: var(--ui-text);
 }
 
 /* Surfaces */
@@ -48,8 +49,8 @@
 .dark .text-slate-700 { color: #c3cad3; }
 .dark .text-slate-600 { color: #a0a9b4; }
 .dark .text-slate-500 { color: #7d8692; }
-.dark .text-slate-400 { color: #667080; }
-.dark .text-slate-300 { color: #4c5560; }
+  .dark .text-slate-400 { color: #94a3b8; }
+  .dark .text-slate-300 { color: #cbd5e1; }
 .dark input::placeholder,
 .dark textarea::placeholder { color: #667080; opacity: 1; }
 
@@ -184,4 +185,165 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pixel-blink, .pixel-scanline { animation: none !important; }
+}
+
+/* App-wide product UI standard shared by public, jobseeker, employer, staff,
+   medical, supervisor, and admin screens. Keep the pixel identity in artwork;
+   use modern, low-noise surfaces and controls for working interfaces. */
+:root {
+  color-scheme: light;
+  --ui-canvas: #f6f8fb;
+  --ui-surface: #ffffff;
+  --ui-line: #e2e8f0;
+  --ui-text: #0f172a;
+  --ui-muted: #64748b;
+  --ui-accent: #1d4ed8;
+}
+
+:root.dark,
+html.dark,
+.dark {
+  color-scheme: dark;
+  --ui-canvas: #0b1220;
+  --ui-surface: #111b2c;
+  --ui-line: #1e293b;
+  --ui-text: #f1f5f9;
+  --ui-muted: #94a3b8;
+  --ui-accent: #3b82f6;
+}
+
+body { background: var(--ui-canvas); color: var(--ui-text); }
+button, a, input, select, textarea { -webkit-tap-highlight-color: rgb(29 78 216 / 12%); }
+button { min-height: 44px; }
+button:not(:disabled) { cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid rgb(59 130 246 / 55%);
+  outline-offset: 2px;
+}
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  border-radius: .75rem;
+}
+input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
+table { border-collapse: separate; border-spacing: 0; }
+thead th { color: #475569; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
+tbody tr { transition: background-color .15s ease; }
+tbody tr:hover { background-color: #f8fafc; }
+
+/* Migrate legacy thick-outline panels/buttons to the same surface language
+   without changing the component hierarchy or its behavior. */
+[class~="border-2"][class~="border-slate-900"] {
+  border-width: 1px !important;
+  border-color: var(--ui-line) !important;
+}
+[class~="pixel-shadow"], [class~="pixel-shadow-sm"] {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 8px 24px -18px rgb(15 23 42 / 20%) !important;
+}
+[class~="uppercase"][class~="tracking-wide"] { letter-spacing: .015em; }
+
+/* Common portal headers and page canvases. */
+.theme-site, .theme-employer, #root > main:not([class*="bg-"]) {
+  background-color: var(--ui-canvas);
+}
+.dark .theme-site,
+.dark .theme-employer,
+.dark #root > main:not([class*="bg-"]) {
+  background-color: var(--ui-canvas);
+}
+.dark { color-scheme: dark; }
+.dark body { background-color: var(--ui-canvas); color: var(--ui-text); }
+.dark [class~="bg-slate-50"] { background-color: #0b1220; }
+.dark [class~="bg-white"] { background-color: #111b2c; }
+.dark [class~="border-slate-900"] { border-color: #283548; }
+.dark tbody tr:hover { background-color: #172235; }
+.dark thead th { color: #cbd5e1; }
+
+/* Normalize legacy role portals to the shared employment-service accent.
+   Status colors remain semantic; primary actions stay consistently blue. */
+button[class~="bg-amber-400"], button[class~="bg-amber-500"],
+a[class~="bg-amber-400"], a[class~="bg-amber-500"],
+button[class~="bg-violet-700"], a[class~="bg-violet-700"] {
+  background-color: var(--ui-accent) !important;
+  color: #fff !important;
+  border-color: var(--ui-accent) !important;
+}
+button[class~="bg-role-employer"], button[class~="bg-role-supervisor"],
+button[class~="bg-role-medical"], button[class~="bg-role-staff"],
+button[class~="bg-role-admin"], label[class~="bg-role-employer"],
+label[class~="bg-role-supervisor"], label[class~="bg-role-medical"],
+label[class~="bg-role-staff"], label[class~="bg-role-admin"] {
+  background-color: var(--ui-accent) !important;
+  color: #fff !important;
+  border-color: var(--ui-accent) !important;
+}
+button[class~="bg-amber-400"]:hover, button[class~="bg-amber-500"]:hover,
+a[class~="bg-amber-400"]:hover, a[class~="bg-amber-500"]:hover,
+button[class~="bg-violet-700"]:hover, a[class~="bg-violet-700"]:hover {
+  background-color: #1e40af !important;
+}
+button[class~="bg-role-employer"]:hover, button[class~="bg-role-supervisor"]:hover,
+button[class~="bg-role-medical"]:hover, button[class~="bg-role-staff"]:hover,
+button[class~="bg-role-admin"]:hover, label[class~="bg-role-employer"]:hover,
+label[class~="bg-role-supervisor"]:hover, label[class~="bg-role-medical"]:hover,
+label[class~="bg-role-staff"]:hover, label[class~="bg-role-admin"]:hover {
+  background-color: #1e40af !important;
+}
+[class*="shadow-[2px"] {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 8px 24px -18px rgb(15 23 42 / 22%) !important;
+}
+[class~="border-2"] { border-width: 1px !important; }
+[class~="pixel-shadow"], [class~="pixel-shadow-sm"] {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 8px 24px -18px rgb(15 23 42 / 20%) !important;
+}
+.dark [class~="bg-white/95"] { background-color: rgb(17 27 44 / .96); }
+.dark [class~="bg-white/70"] { background-color: rgb(17 27 44 / .82); }
+.dark [class~="bg-blue-50"] { background-color: #172554; }
+.dark [class~="bg-blue-50/80"] { background-color: rgb(23 37 84 / .8); }
+.dark [class~="bg-violet-50"] { background-color: #2e1065; }
+.dark [class~="bg-emerald-50"] { background-color: #052e24; }
+.dark [class~="bg-amber-50"] { background-color: #422006; }
+.dark [class~="bg-red-50"] { background-color: #450a0a; }
+.dark [class~="bg-slate-100"] { background-color: #1e293b; }
+.dark [class~="bg-slate-200"] { background-color: #283548; }
+.dark [class~="text-slate-900"], .dark [class~="text-slate-800"] { color: #e2e8f0; }
+.dark [class~="text-slate-700"] { color: #cbd5e1; }
+.dark [class~="text-slate-600"] { color: #94a3b8; }
+.dark [class~="text-blue-900"], .dark [class~="text-blue-800"] { color: #bfdbfe; }
+.dark [class~="text-violet-950"], .dark [class~="text-violet-900"], .dark [class~="text-violet-800"] { color: #ddd6fe; }
+.dark [class~="text-amber-900"], .dark [class~="text-amber-800"] { color: #fde68a; }
+.dark [class~="text-emerald-800"] { color: #a7f3d0; }
+.dark [class~="text-red-800"], .dark [class~="text-red-700"] { color: #fecaca; }
+.dark [class~="border-slate-200"], .dark [class~="border-slate-300"] { border-color: #334155; }
+.dark [class~="border-blue-100"], .dark [class~="border-blue-200"] { border-color: #1e3a8a; }
+.dark [class~="text-black"], .dark [class~="text-slate-950"] { color: #f8fafc; }
+.dark [class~="bg-amber-400"] { background-color: #1d4ed8; }
+.dark [class~="bg-violet-700"] { background-color: #1d4ed8; }
+.dark [class~="bg-role-staff"] { background-color: #1d4ed8; }
+.dark [class~="bg-role-supervisor"] { background-color: #1d4ed8; }
+.dark [class~="text-slate-950"] { color: #f8fafc; }
+
+/* Keep browser controls, dialogs, and tables legible in both themes. */
+input, select, textarea {
+  color: var(--ui-text);
+  border-color: var(--ui-line);
+}
+.dark input, .dark select, .dark textarea {
+  color: #e2e8f0;
+  background-color: #111b2c;
+  border-color: #334155;
+}
+.dark input::placeholder, .dark textarea::placeholder { color: #94a3b8; }
+.dark option { background-color: #111b2c; color: #e2e8f0; }
+.dark dialog, .dark [role="dialog"] { color: #e2e8f0; }
+
+/* Native page structure behaves consistently across public and portal routes. */
+#root main { color: var(--ui-text); }
+.dark #root main { color: #e2e8f0; }
+#root main h1 { text-wrap: balance; }
+#root main section { scroll-margin-top: 6rem; }
+#root button:disabled { cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }

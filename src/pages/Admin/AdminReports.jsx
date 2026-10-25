@@ -1,7 +1,8 @@
+import {eventVacancyService} from '../../services/eventVacancyService'
+import {spreadsheetCsv} from '../../lib/csvExport.js'
 import { useEffect, useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import Papa from 'papaparse'
 import { eventTypeDisplay } from '../../domain/eventTypes'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -67,7 +68,7 @@ function PivotTable({ columns, data, exportFileName }) {
       columns.forEach(c => { obj[c.label] = row[c.key] ?? '' })
       return obj
     })
-    const csv = Papa.unparse(rows)
+    const csv = spreadsheetCsv(rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -119,12 +120,15 @@ export default function AdminReports() {
   const [_followUps, setFollowUps] = useState([])
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [activeTab, setActiveTab] = useState('overview')
 
   useEffect(() => {
     let alive = true
     async function loadData() {
       setLoading(true)
+      setLoadError('')
       try {
         const [regData, intData, vacData, evData, appData, outcomeData, ofwData, workerData, followUpData] = await Promise.all([
           registrantService.listForReports(),
@@ -149,14 +153,14 @@ export default function AdminReports() {
         setFollowUps(followUpData || [])
       } catch (err) {
         console.error(err)
-        toast.error('Failed to load report data')
+        if (alive) setLoadError(err.message || 'Failed to load report data.')
       } finally {
         if (alive) setLoading(false)
       }
     }
     loadData()
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   // ─── Filters ───
   const reg = useMemo(() => selectedEvent ? registrants.filter(r => r.event_id === selectedEvent) : registrants, [registrants, selectedEvent])
@@ -418,6 +422,8 @@ export default function AdminReports() {
   const inputCls = 'rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none'
 
   if (loading) return <div className="grid min-h-screen place-items-center text-slate-500">Loading reports...</div>
+
+  if (loadError) return <section role="alert" className="mx-auto max-w-2xl rounded-2xl border border-rose-300 bg-rose-50 p-6 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100"><h1 className="text-xl font-bold">Report data unavailable</h1><p className="mt-2 text-sm">{loadError}</p><p className="mt-2 text-sm">The report is hidden until all required data can be loaded, so its totals are not presented as zero.</p><button type="button" onClick={() => setReloadKey(key => key + 1)} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">Try again</button></section>
 
   return (
     <div className="space-y-6">

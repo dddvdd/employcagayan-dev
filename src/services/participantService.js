@@ -14,6 +14,10 @@ export async function getOrCreateParticipant() {
   )
 }
 
+export async function findMine(userId) {
+  return unwrap(await supabase.from('participants').select('id').eq('auth_user_id', userId).maybeSingle(), 'Could not find your participant record')
+}
+
 export async function saveJobseekerProfile(profile) {
   return unwrapRpc(
     await supabase.rpc('save_jobseeker_profile', { p_profile: profile }),
@@ -138,8 +142,13 @@ export async function staffRegisterParticipant(participantId, eventId) {
   )
 }
 
+export async function setResume(path,previousPath=null) {
+ return unwrapRpc(await supabase.rpc('set_jobseeker_resume',{p_resume_path:path,p_previous_path:previousPath}),'Could not save your resume')
+}
 export const participantService = {
   getOrCreateParticipant,
+  setResume,
+  findMine,
   saveJobseekerProfile,
   fetchJobseekerProfile,
   findParticipantByPass,

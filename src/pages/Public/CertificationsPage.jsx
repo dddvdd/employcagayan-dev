@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
-import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { PixelArrow, PixelBriefcase } from '../../components/public/pixel'
-import ThemeToggle from '../../components/ThemeToggle'
+import { PixelBriefcase } from '../../components/public/pixel'
+import JobseekerRecordHeader from '../../components/jobseeker/JobseekerRecordHeader.jsx'
+import AccessibleDialog from '../../components/ui/AccessibleDialog.jsx'
+import ConfirmActionDialog from '../../components/ui/ConfirmActionDialog.jsx'
+import PageLoadingState from '../../components/ui/PageLoadingState.jsx'
+import ThemeToggle from '../../components/ThemeToggle.jsx'
 import { certificationService } from '../../services/certificationService'
 import { referenceService } from '../../services/referenceService'
 
@@ -18,7 +21,7 @@ const EMPTY = {
   verification_url: '',
 }
 
-const input = 'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+const input = 'block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
 function formatDate(value) {
   if (!value) return ''
@@ -92,8 +95,11 @@ export default function CertificationsPage() {
   const [items, setItems] = useState([])
   const [canonical, setCanonical] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const form = useForm({ defaultValues: EMPTY })
   const { register, handleSubmit, reset, watch, setValue, formState: { errors: _errors } } = form
   const doesNotExpire = watch('does_not_expire')
@@ -106,10 +112,10 @@ export default function CertificationsPage() {
       referenceService.listCertifications(),
     ])
       .then(([mine, certs]) => { if (alive) { setItems(mine || []); setCanonical(certs || []) } })
-      .catch(() => {})
+      .catch(() => { if (alive) setLoadError(true) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [])
+  }, [reloadKey])
 
   function startAdd() { setEditing('new'); reset(EMPTY) }
   function startEdit(item) {
@@ -160,13 +166,12 @@ export default function CertificationsPage() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this certification?')) return
     try {
       await certificationService.remove(id)
       setItems((prev) => prev.filter(i => i.id !== id))
       toast.success('Deleted')
     } catch (e) {
-      toast.error(e.message || 'Failed to delete')
+      throw e
     }
   }
 
@@ -180,13 +185,27 @@ export default function CertificationsPage() {
 
   const sortedItems = [...items].sort((a, b) => (b.date_issued || '').localeCompare(a.date_issued || ''))
 
-  if (loading) return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Loading certifications…</main>
+  if (loading) return <PageLoadingState>Loading certifications…</PageLoadingState>
+
+  if (loadError) return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <JobseekerRecordHeader />
+      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+        <div className="absolute right-4 top-4"><ThemeToggle /></div>
+        <section role="alert" className="rounded-2xl border border-rose-200 bg-white p-6 text-center dark:border-rose-900 dark:bg-slate-900">
+          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">Certifications couldn’t be loaded</h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Check your connection and try again. Your saved credentials have not been changed.</p>
+          <button type="button" onClick={() => { setLoading(true); setLoadError(false); setReloadKey((key) => key + 1) }} className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">Try again</button>
+        </section>
+      </main>
+    </div>
+  )
 
   if (editing) {
     return (
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-8 sm:px-6" role="presentation">
+      <AccessibleDialog open onClose={cancel} closeDisabled={saving} labelledBy="cert-modal-title" className="max-w-3xl p-0">
         <div className="mx-auto flex min-h-full max-w-3xl items-center justify-center">
-          <div className="w-full rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" role="dialog" aria-modal="true" aria-labelledby="cert-modal-title">
+          <div className="w-full rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
               <h1 id="cert-modal-title" className="text-lg font-bold text-slate-900">{editing === 'new' ? 'Add Certification' : 'Edit Certification'}</h1>
               <button type="button" onClick={cancel} className="rounded-lg px-2 py-1 text-2xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="Close">×</button>
@@ -247,20 +266,13 @@ export default function CertificationsPage() {
             </form>
           </div>
         </div>
-      </div>
+      </AccessibleDialog>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4 sm:px-6">
-          <Link to="/profile" className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900">
-            <PixelArrow className="h-4 w-4 rotate-180" /> Profile
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <JobseekerRecordHeader />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         <div className="flex items-center justify-between">
           <div>
@@ -273,7 +285,7 @@ export default function CertificationsPage() {
         </div>
 
         {sortedItems.length === 0 ? (
-          <div className="mt-12 rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center">
+          <div className="mt-12 rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
             <PixelBriefcase className="mx-auto h-6 w-6 text-slate-300" />
             <p className="mt-3 text-sm font-medium text-slate-500">No certifications recorded yet.</p>
             <p className="mt-1 text-xs text-slate-400">Add certifications and licenses to boost your credibility.</p>
@@ -284,7 +296,7 @@ export default function CertificationsPage() {
         ) : (
           <div className="mt-6 space-y-3">
             {sortedItems.map(item => (
-              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-slate-900">{certDisplayName(item)}</p>
@@ -303,7 +315,7 @@ export default function CertificationsPage() {
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button onClick={() => startEdit(item)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</button>
-                    <button onClick={() => handleDelete(item.id)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
+                    <button onClick={() => setDeleteTarget(item)} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
                   </div>
                 </div>
               </div>
@@ -311,6 +323,7 @@ export default function CertificationsPage() {
           </div>
         )}
       </main>
+      <ConfirmActionDialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} onConfirm={() => handleDelete(deleteTarget.id)} title="Delete certification?" description={`This permanently removes ${deleteTarget?.credential_name_override || deleteTarget?.certifications?.canonical_name || 'this certification'} from your profile.`} itemLabel="this certification" />
     </div>
   )
 }
