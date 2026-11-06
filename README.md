@@ -4,6 +4,8 @@ Job fair and recruitment platform for the Provincial Government of Cagayan's
 Public Employment Service Office (PESO). React 19 + Vite frontend against a
 Supabase (Postgres + Auth + Storage) backend with row-level security.
 
+Start with the [documentation index](docs/START_HERE.md) for the current handoff, development plan, UAT, and operating procedures.
+
 ## What this repo contains
 
 Only what is needed to run the web app and provision its database:
@@ -95,9 +97,9 @@ roles complete `/auth/mfa` before protected routes open. Pending company
 applications use `/partner/accreditation` with a separate TOTP requirement;
 their Google jobseeker access remains available without additional MFA.
 Public signup cannot assign Partner permissions. Lost-device recovery uses the
-restricted administrator/operator procedure in `DEV_MFA_RECOVERY.md`; fresh
+restricted administrator/operator procedure in `docs/operations/DEV_MFA_RECOVERY.md`; fresh
 TOTP enrollment remains mandatory afterward. Real Google OAuth/linking and the
-remaining verification work are recorded in `DEV_IDENTITY_MILESTONE.md`.
+remaining verification work are recorded in `docs/audits/milestones/DEV_IDENTITY_MILESTONE.md`.
 
 `npm run test` runs isolated unit/database tests; `npm run test:browser` runs
 browser tests that intercept external traffic. `tests/integration/dev-auth.js`
@@ -115,22 +117,22 @@ Recovered migration files reflect existing DEV history; reconcile the remaining
 local/DEV differences before applying any pending migrations.
 
 Profile consent, birthday and atomic education changes, test scope and remaining
-limitations are recorded in `DEV_PROFILE_MILESTONE.md`.
+limitations are recorded in `docs/audits/milestones/DEV_PROFILE_MILESTONE.md`.
 
 Catalog loading, skill/language persistence and direct-write provenance safeguards
-are recorded in `DEV_QUALIFICATIONS_MILESTONE.md`.
+are recorded in `docs/audits/milestones/DEV_QUALIFICATIONS_MILESTONE.md`.
 
 Resume, application and organizational authorization changes, verification evidence and remaining
-Google acceptance limitations are recorded in `DEV_PROFILE_MILESTONE_3C.md`.
+Google acceptance limitations are recorded in `docs/audits/milestones/DEV_PROFILE_MILESTONE_3C.md`.
 
 Evidence-aware eligibility, scoring versions and local recommendation regression results
-are recorded in `DEV_ELIGIBILITY_MILESTONE.md`.
+are recorded in `docs/audits/milestones/DEV_ELIGIBILITY_MILESTONE.md`.
 
 Matching/AI authorization, certification provenance and signed DEV acceptance results
-are recorded in `DEV_INTELLIGENCE_AUTHORIZATION_MILESTONE.md`.
+are recorded in `docs/audits/milestones/DEV_INTELLIGENCE_AUTHORIZATION_MILESTONE.md`.
 
 Authorized numeric semantic recommendations, batching, scoring configuration and native DEV
-verification are documented in `DEV_SEMANTIC_MILESTONE.md`.
+verification are documented in `docs/audits/milestones/DEV_SEMANTIC_MILESTONE.md`.
 
 ## Commands
 
@@ -155,36 +157,36 @@ Redeploy after changing build-time environment variables. Keep service-role
 keys and Google OAuth client secrets out of Vercel's `VITE_` variables; the
 Google credentials belong in Supabase Auth provider settings.
 
-Embedding source invalidation, stale-generation rejection and private-schema qualification guard repairs are documented in `DEV_EMBEDDING_FRESHNESS_MILESTONE.md`.
+Embedding source invalidation, stale-generation rejection and private-schema qualification guard repairs are documented in `docs/audits/milestones/DEV_EMBEDDING_FRESHNESS_MILESTONE.md`.
 
-Canonical resolution/search, representation v2, dictionary cache invalidation and pending official PSOC import are recorded in `DEV_TAXONOMY_MILESTONE.md`.
+Canonical resolution/search, representation v2, dictionary cache invalidation and pending official PSOC import are recorded in `docs/audits/milestones/DEV_TAXONOMY_MILESTONE.md`.
 
-AI review dictionary selection, historical preference safeguards, signed DEV verification and local-only official PSA API retrieval tooling are documented in [DEV_AI_REVIEW_WORKFLOW_MILESTONE.md](DEV_AI_REVIEW_WORKFLOW_MILESTONE.md). Actual API import still requires the privately configured authorized PSA token.
+AI review dictionary selection, historical preference safeguards, signed DEV verification and local-only official PSA API retrieval tooling are documented in [DEV_AI_REVIEW_WORKFLOW_MILESTONE.md](docs/audits/milestones/DEV_AI_REVIEW_WORKFLOW_MILESTONE.md). Actual API import still requires the privately configured authorized PSA token.
 
-Extraction provider/schema safeguards, the guarded DEV quota and the approved DEV v8 security publication are recorded in [DEV_EXTRACTION_SECURITY_MILESTONE.md](DEV_EXTRACTION_SECURITY_MILESTONE.md). Post-publication runtime acceptance is recorded separately from the historical v7 baseline.
+Extraction provider/schema safeguards, the guarded DEV quota and the approved DEV v8 security publication are recorded in [DEV_EXTRACTION_SECURITY_MILESTONE.md](docs/audits/milestones/DEV_EXTRACTION_SECURITY_MILESTONE.md). Post-publication runtime acceptance is recorded separately from the historical v7 baseline.
 
-Canonical interview/application references, outcome jurisdiction/reviewer guards, historical nullable-reference compatibility and signed DEV acceptance are recorded in [DEV_OUTCOME_SECURITY_MILESTONE.md](DEV_OUTCOME_SECURITY_MILESTONE.md).
+Canonical interview/application references, outcome jurisdiction/reviewer guards, historical nullable-reference compatibility and signed DEV acceptance are recorded in [DEV_OUTCOME_SECURITY_MILESTONE.md](docs/audits/milestones/DEV_OUTCOME_SECURITY_MILESTONE.md).
 
-The durable extraction producer’s verified schema baseline, browser hashing repair and remaining source/persistence requirements are documented in [DEV_EXTRACTION_PRODUCER_BASELINE.md](DEV_EXTRACTION_PRODUCER_BASELINE.md). Final local checks pass 267 unit and 62 browser tests; the complete producer remains unimplemented.
+The durable extraction producer’s verified schema baseline, browser hashing repair and remaining source/persistence requirements are documented in [DEV_EXTRACTION_PRODUCER_BASELINE.md](docs/archive/DEV_EXTRACTION_PRODUCER_BASELINE.md). Final local checks pass 267 unit and 62 browser tests; the complete producer remains unimplemented.
 
-Guarded canonical extraction sources, intent-aware fingerprints, source bounds and signed DEV source acceptance are recorded in [DEV_EXTRACTION_SOURCE_MILESTONE.md](DEV_EXTRACTION_SOURCE_MILESTONE.md). The full unit suite passes 276 tests; the durable producer remains incomplete.
+Guarded canonical extraction sources, intent-aware fingerprints, source bounds and signed DEV source acceptance are recorded in [DEV_EXTRACTION_SOURCE_MILESTONE.md](docs/audits/milestones/DEV_EXTRACTION_SOURCE_MILESTONE.md). The full unit suite passes 276 tests; the durable producer remains incomplete.
 
-Controlled extraction runs, retry leases, atomic pending suggestions, source-fresh human review and signed DEV lifecycle acceptance are recorded in [DEV_EXTRACTION_LIFECYCLE_MILESTONE.md](DEV_EXTRACTION_LIFECYCLE_MILESTONE.md). Local regressions pass 289 unit and 63 browser tests; managed provider orchestration and generation UI remain incomplete.
+Controlled extraction runs, retry leases, atomic pending suggestions, source-fresh human review and signed DEV lifecycle acceptance are recorded in [DEV_EXTRACTION_LIFECYCLE_MILESTONE.md](docs/audits/milestones/DEV_EXTRACTION_LIFECYCLE_MILESTONE.md). Local regressions pass 289 unit and 63 browser tests; managed provider orchestration and generation UI remain incomplete.
 
-The local managed provider path, PESO source preview/generation interface, 301-unit/68-browser regression results and prepared seven-file DEV replacement are recorded in [DEV_MANAGED_EXTRACTION_MILESTONE.md](DEV_MANAGED_EXTRACTION_MILESTONE.md). Actual generation remains disabled pending publication and hosted verification.
+The local managed provider path, PESO source preview/generation interface, 301-unit/68-browser regression results and prepared seven-file DEV replacement are recorded in [DEV_MANAGED_EXTRACTION_MILESTONE.md](docs/audits/milestones/DEV_MANAGED_EXTRACTION_MILESTONE.md). Actual generation remains disabled pending publication and hosted verification.
 
-Atomic human correction of requirement priority/minimum experience, explicit zero handling and signed DEV review acceptance are recorded in [DEV_REQUIREMENT_REVIEW_MILESTONE.md](DEV_REQUIREMENT_REVIEW_MILESTONE.md). Regressions pass 308 unit and 70 browser tests; the pending managed function package remains unchanged and unpublished.
+Atomic human correction of requirement priority/minimum experience, explicit zero handling and signed DEV review acceptance are recorded in [DEV_REQUIREMENT_REVIEW_MILESTONE.md](docs/audits/milestones/DEV_REQUIREMENT_REVIEW_MILESTONE.md). Regressions pass 308 unit and 70 browser tests; the pending managed function package remains unchanged and unpublished.
 
-Dictionary revision binding, cache refresh and stale worker rejection are recorded in [DEV_EXTRACTION_DICTIONARY_MILESTONE.md](DEV_EXTRACTION_DICTIONARY_MILESTONE.md). Five focused regressions and all 313 unit tests pass; native DEV checks pass four groups/50 requests with complete cleanup. The managed package remains unpublished.
+Dictionary revision binding, cache refresh and stale worker rejection are recorded in [DEV_EXTRACTION_DICTIONARY_MILESTONE.md](docs/audits/milestones/DEV_EXTRACTION_DICTIONARY_MILESTONE.md). Five focused regressions and all 313 unit tests pass; native DEV checks pass four groups/50 requests with complete cleanup. The managed package remains unpublished.
 
-Canonical qualification IDs now take precedence over homonymous labels in eligibility/scoring. [DEV_CANONICAL_MATCHING_MILESTONE.md](DEV_CANONICAL_MATCHING_MILESTONE.md) records the false-pass/false-exclusion repairs, 328-unit/71-browser passing regressions and test-server-only generation setup. Actual managed generation remains disabled.
+Canonical qualification IDs now take precedence over homonymous labels in eligibility/scoring. [DEV_CANONICAL_MATCHING_MILESTONE.md](docs/audits/milestones/DEV_CANONICAL_MATCHING_MILESTONE.md) records the false-pass/false-exclusion repairs, 328-unit/71-browser passing regressions and test-server-only generation setup. Actual managed generation remains disabled.
 
-Versioned provenance, guarded administrator review and private deletion history for occupation-skill links are documented in [DEV_OCCUPATION_KNOWLEDGE_MILESTONE.md](DEV_OCCUPATION_KNOWLEDGE_MILESTONE.md). Nine isolated groups, 337 unit tests and five signed DEV groups pass; original seed content remains pending review.
+Versioned provenance, guarded administrator review and private deletion history for occupation-skill links are documented in [DEV_OCCUPATION_KNOWLEDGE_MILESTONE.md](docs/audits/milestones/DEV_OCCUPATION_KNOWLEDGE_MILESTONE.md). Nine isolated groups, 337 unit tests and five signed DEV groups pass; original seed content remains pending review.
 
-[DEV_MANAGED_EXTRACTION_PUBLICATION.md](DEV_MANAGED_EXTRACTION_PUBLICATION.md) records the explicitly approved DEV v9 managed publication, real synthetic-provider acceptance and local-development activation. Hosted source matches the seven-file prepared package exactly. Generation is enabled for local development connected to verified DEV; no Vercel/Production publication occurred.
+[DEV_MANAGED_EXTRACTION_PUBLICATION.md](docs/operations/DEV_MANAGED_EXTRACTION_PUBLICATION.md) records the explicitly approved DEV v9 managed publication, real synthetic-provider acceptance and local-development activation. Hosted source matches the seven-file prepared package exactly. Generation is enabled for local development connected to verified DEV; no Vercel/Production publication occurred.
 
-Administrators can review occupation-skill relationships at /admin/occupation-skills. [DEV_OCCUPATION_CURATION_MILESTONE.md](DEV_OCCUPATION_CURATION_MILESTONE.md) records explicit source-version approval/rejection, stale-review recovery, paged history, 343 unit/78 browser passes and six signed DEV groups with complete cleanup. Genuine seed links remain pending human evidence review.
+Administrators can review occupation-skill relationships at /admin/occupation-skills. [DEV_OCCUPATION_CURATION_MILESTONE.md](docs/audits/milestones/DEV_OCCUPATION_CURATION_MILESTONE.md) records explicit source-version approval/rejection, stale-review recovery, paged history, 343 unit/78 browser passes and six signed DEV groups with complete cleanup. Genuine seed links remain pending human evidence review.
 
-[DEV_SKILL_RELATIONSHIP_MILESTONE.md](DEV_SKILL_RELATIONSHIP_MILESTONE.md) records versioned related/transferable skill knowledge, administrator-only raw curation, guarded approved snapshots and one-hop evidence without qualification credit. All 357 unit tests and six corrected native DEV groups pass. Public fixtures are cleaned; 30 scoped private synthetic history rows await cleanup after connector request-state errors. Graph curation UI and ranking integration remain incomplete.
+[DEV_SKILL_RELATIONSHIP_MILESTONE.md](docs/audits/milestones/DEV_SKILL_RELATIONSHIP_MILESTONE.md) records versioned related/transferable skill knowledge, administrator-only raw curation, guarded approved snapshots and one-hop evidence without qualification credit. All 357 unit tests and six corrected native DEV groups pass. Public fixtures are cleaned; 30 scoped private synthetic history rows await cleanup after connector request-state errors. Graph curation UI and ranking integration remain incomplete.
 
-Administrators can create pending related/transferable skill drafts and review them at /admin/skill-relationships. [DEV_SKILL_RELATIONSHIP_UI_MILESTONE.md](DEV_SKILL_RELATIONSHIP_UI_MILESTONE.md) records shared review controls, 363-unit/86-browser passes and three signed DEV client-read groups. The earlier 30 private synthetic history rows remain pending connector cleanup; new client live writes and ranking integration are not claimed complete.
+Administrators can create pending related/transferable skill drafts and review them at /admin/skill-relationships. [DEV_SKILL_RELATIONSHIP_UI_MILESTONE.md](docs/audits/milestones/DEV_SKILL_RELATIONSHIP_UI_MILESTONE.md) records shared review controls, 363-unit/86-browser passes and three signed DEV client-read groups. The earlier 30 private synthetic history rows remain pending connector cleanup; new client live writes and ranking integration are not claimed complete.

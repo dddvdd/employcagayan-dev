@@ -1,0 +1,44 @@
+# EMPLOYCagayan employer and administrator UAT matrix
+
+6 November 2026 · Asia/Manila · Plan only · Every case NOT TESTED
+
+Run only under separate DEV UAT authorization after the operator gates and installation verification pass. Record project `cdmkzzmaswwiryymtycn`, build and migration version/hash, tester, timestamp, case ID and result. Use approved fictional fixtures and a controlled mailbox with communications confined to the test team. Operator assigns accounts and permissions through the approved process before execution.
+
+| Role | Fictional fixture |
+| --- | --- |
+| E1 / E2 | Independent approved employers with distinct organizations and owned vacancies. |
+| EP | New/pending employer with no approved organization privileges. |
+| A1 | Approved admin with permission to manage users, employers, vacancies and reports. |
+| J1 / J2 | Fictional jobseekers with distinct applications and resumes. |
+| S1 | Scoped staff or supervisor with an explicitly assigned event/jurisdiction. |
+| ANON | Signed-out session in a clean browser context. |
+
+Use separate browser profiles for cross-role cases. Use genuine enrolled TOTP factors and real session refresh/sign-out flows. Capture redacted screenshots, request status and sanitized responses, timestamps and before/after readbacks. Exclude passwords, QR seeds, OTPs, tokens, real personal data and unredacted exports. Record UI and server enforcement separately. Match exact status transitions, report definitions and scope to the approved release contract before execution. A policy ambiguity blocks the case.
+
+| ID | Prerequisites | Fictional role | Action | Expected result | Evidence required |
+| --- | --- | --- | --- | --- | --- |
+| AU01 | Enabled accounts, clean profiles | E1, A1 | Sign in with approved method, navigate dashboard, sign out and revisit protected URL | Correct dashboard and role. Signed-out session redirected or denied | Sign-in/out trace, landing route and denied response |
+| AU02 | Password sign-in before factor verification | E1, A1 | Enroll genuine TOTP if separately approved, enter bad then valid code, refresh session | Bad code denied, privileged actions unavailable before AAL2, genuine verification grants expected access | Redacted challenge and server assurance-level evidence |
+| AU03 | Verified and lower-assurance sessions available | E1, A1 | Call privileged routes/API before MFA, then after verification, then after approved revocation/sign-out | Unauthorized and revoked requests fail without mutation, verified session succeeds in scope | Response statuses, audit event and unchanged-state readback |
+| ER01 | Controlled test registration details | EP | Start and complete employer registration and email/account linking where required | One correctly linked pending record, duplicate attempts handled safely | Redacted registration and admin pending record |
+| ER02 | Pending employer and fictional documents | EP | Submit accreditation, exercise required-field and invalid-file rejection, resubmit corrected item | Valid documents attach to correct organization, status and feedback reflect review workflow | Redacted upload metadata and status history |
+| ER03 | Pending and rejected fixtures | EP, A1 | Review docs, reject with reason, verify notice, correct and approve | Authorized review produces approved transition/audit. Pending/rejected employer cannot perform approved-only actions | Audit entries, status before/after, denied calls |
+| ER04 | Linked approved and inactive fixtures | A1, E1 | Inspect employer list, update allowed profile fields, exercise approved deactivate/reactivate or linking workflow | Correct owner linkage and status, access follows effective activation and approval | Audit trail, own/foreign readbacks, session evidence |
+| V01 | Approved employer at AAL2, valid lookup values | E1 | Create draft with all five requirement families, save and reload | One canonical draft with correct IDs, values, importance and zero minima | Request trace and independent snapshot readback |
+| V02 | Two owned vacancies, one populated draft | E1 | Switch during delayed load, add/edit/remove across five families, save | Active vacancy alone changes, retained identities and other vacancy unchanged | Both before/after snapshots and single-save trace |
+| V03 | Existing skill and language pairs, approved artifact | E1 | Replace, swap and remove/re-add each canonical pair, then submit a duplicate | Valid final sets save without intermediate uniqueness errors, duplicate rejected atomically | IDs, canonical pairs, error/status and before/after readback |
+| V04 | Two E1 sessions and saved snapshot | E1 | Save unchanged, save real edit, attempt stale save, induce approved validation failure and retry | No-op stable, valid edit updates version, stale/invalid requests roll back and keep editor input | Version/fingerprint readbacks, success/error notices and retry trace |
+| V05 | Valid draft and invalid variants | E1 | Publish valid draft, test bad description/workplace/slots/pay/minima and missing mandatory evidence | Only complete valid published state commits, invalid updates preserve prior state | State transitions, exact rejection reason and before/after |
+| V06 | Future and expired fictional deadlines, offering fixture | E1, A1 | Manage authorized offering and slots, check deadline cutoff, close/deactivate via supported workflow | New submissions stop as configured, canonical vacancy and prior cases remain | Offering/deadline readbacks and application retention |
+| AP01 | Two open vacancies, two fictional jobseekers | J1, J2, E1 | Submit applications, retry duplicate and try expired/closed vacancy, inspect employer inbox | Correct vacancy and candidate links, duplicate protection and deadline rejection, owned inbox only | Application IDs/statuses and inbox readback |
+| AP02 | Owned application and fictional resume | E1, J1 | Review candidate and permitted resume, shortlist or reject through allowed states, test invalid transition | Correct role-based visibility, state/history follows release contract, invalid transition rejected | Redacted candidate/document access and status audit |
+| HI01 | Shortlisted candidate and authorized outcome workflow | E1, A1 | Complete allowed hiring transition, record/verify employment outcome, edit vacancy afterward | Outcome links to original application, vacancy edit preserves application and employment history | Before/after linkage IDs, outcome and actor audit |
+| AD01 | Admin AAL2 and test users/employers | A1 | Search, filter and manage approved test users and employer accounts, verify scoped role assignment and activation | Only authorized actions succeed, effective role and audit consistent after refresh | UI, role matrix checks and audit trail |
+| AD02 | Fictional events, vacancies and applicants | A1 | Manage event/offering and vacancy through allowed admin tools, inspect applications, registrants and outcomes | Correct scope and linkage, invalid values rejected, history-preserving behavior | Before/after records and validation/audit responses |
+| RP01 | Known fictional totals by event/employer/outcome | A1 | Run reports, apply filters and export where enabled | Totals match independently counted fixtures, filters/columns/scope correct, export excludes unrelated data | Expected vs actual counts, redacted export schema and sample |
+| DN01 | Foreign owned vacancy/application and resume | E2 | Deep-link to E1 assets and attempt equivalent reads/updates through API | Foreign private data withheld, mutations denied, no ownership reassignment | Server response and E1 unchanged-state readback |
+| DN02 | Active fixtures and role baselines | EP, E1, S1, ANON | Attempt admin reports, exports, user/role management and cross-jurisdiction reads | Each role limited to approved scope, unauthenticated or unauthorized requests denied | Route/API matrix and absence of sensitive payloads |
+| DN03 | Two applicants and associated records | J2, E1 | Attempt J1 application/resume access as J2, and unrelated candidate documents as E1 | Only explicitly authorized document and application access succeeds | Status, scoped response and redacted audit |
+| DN04 | Valid drafts and invalid transition attempts | E1, EP, S1 | Attempt approval, direct publication/status escalation and bypass of controlled save workflow | Server enforces approval, authorization and final-state validity, no partial mutation | Sanitized request/response and independent readback |
+
+**Exit criteria.** Every required case has expected-versus-actual evidence and reviewer sign-off. Any access leak, partial write, identity/history loss, false success or unexplained report variance blocks acceptance. Record defects with case ID, severity, build, sanitized reproduction and retest result. Admin and recruitment owners **PENDING** approve acceptance and fixture disposition. Job-matching acceptance remains NOT TESTED under this plan.
